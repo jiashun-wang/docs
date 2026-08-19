@@ -1,0 +1,195 @@
+---
+title: "Install the NexCore SDK in Your Project"
+sidebarTitle: "Installation"
+description: "Install the NexCore SDK in JavaScript/TypeScript, Python, Go, or Java and get your chosen language integrated in minutes."
+---
+
+NexCore provides official SDKs for the most widely used languages and runtimes, so you can integrate real-time event streaming and AI-powered analytics into your stack without writing low-level HTTP boilerplate. This page walks you through installing the SDK and verifying that everything is working correctly before you write your first line of integration code.
+
+<Tip>
+  For production deployments, pin your SDK dependency to a specific version (for example, `@nexcore/sdk@1.4.2`) rather than a range. This prevents unexpected behaviour from automatic patch or minor upgrades during CI builds.
+</Tip>
+
+---
+
+## Installation
+
+<Tabs>
+  <Tab title="JavaScript / TypeScript">
+    Install the SDK using your preferred package manager:
+
+    ```bash npm
+    npm install @nexcore/sdk
+    ```
+
+    ```bash yarn
+    yarn add @nexcore/sdk
+    ```
+
+    ```bash pnpm
+    pnpm add @nexcore/sdk
+    ```
+
+    Import the client into your project:
+
+    ```typescript TypeScript
+    import { NexCore } from "@nexcore/sdk";
+    ```
+
+    ```javascript JavaScript (CommonJS)
+    const { NexCore } = require("@nexcore/sdk");
+    ```
+  </Tab>
+
+  <Tab title="Python">
+    Install the SDK from PyPI:
+
+    ```bash
+    pip install nexcore
+    ```
+
+    For projects using `poetry`:
+
+    ```bash
+    poetry add nexcore
+    ```
+
+    Import the client in your code:
+
+    ```python
+    from nexcore import NexCore
+    ```
+  </Tab>
+
+  <Tab title="Go">
+    Fetch the module using `go get`:
+
+    ```bash
+    go get github.com/nexcore/sdk-go
+    ```
+
+    Import the package in your Go source:
+
+    ```go
+    import nexcore "github.com/nexcore/sdk-go"
+    ```
+  </Tab>
+
+  <Tab title="Java">
+    Add the NexCore SDK to your Maven `pom.xml`:
+
+    ```xml
+    <dependency>
+      <groupId>io.nexcore</groupId>
+      <artifactId>nexcore-sdk</artifactId>
+      <version>1.4.2</version>
+    </dependency>
+    ```
+
+    Or, if you are using Gradle, add the following to your `build.gradle`:
+
+    ```groovy
+    implementation 'io.nexcore:nexcore-sdk:1.4.2'
+    ```
+
+    Import the client in your Java class:
+
+    ```java
+    import io.nexcore.NexCore;
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## System Requirements
+
+Before installing, confirm that your environment meets the minimum runtime requirements for your chosen language:
+
+| Language | Minimum Version |
+|---|---|
+| Node.js (JS / TS) | 18.0.0 or later |
+| Python | 3.9 or later |
+| Go | 1.21 or later |
+| Java | JDK 11 or later |
+
+---
+
+## Verify Installation
+
+After installing, run a quick connectivity check to confirm the SDK is installed correctly and can reach the NexCore API:
+
+<Tabs>
+  <Tab title="JavaScript / TypeScript">
+    ```typescript
+    import { NexCore } from "@nexcore/sdk";
+
+    const client = new NexCore({ apiKey: process.env.NEXCORE_API_KEY });
+
+    const status = await client.ping();
+    console.log("NexCore SDK version:", client.version);
+    console.log("API status:", status.ok ? "reachable" : "unreachable");
+    ```
+  </Tab>
+
+  <Tab title="Python">
+    ```python
+    from nexcore import NexCore
+    import os
+
+    client = NexCore(api_key=os.environ["NEXCORE_API_KEY"])
+
+    status = client.ping()
+    print(f"NexCore SDK version: {client.version}")
+    print(f"API status: {'reachable' if status.ok else 'unreachable'}")
+    ```
+  </Tab>
+
+  <Tab title="Go">
+    ```go
+    package main
+
+    import (
+      "fmt"
+      "os"
+
+      nexcore "github.com/nexcore/sdk-go"
+    )
+
+    func main() {
+      client := nexcore.NewClient(nexcore.Config{
+        APIKey: os.Getenv("NEXCORE_API_KEY"),
+      })
+
+      status, err := client.Ping()
+      if err != nil {
+        panic(err)
+      }
+
+      fmt.Println("NexCore SDK version:", client.Version())
+      fmt.Println("API reachable:", status.OK)
+    }
+    ```
+  </Tab>
+
+  <Tab title="Java">
+    ```java
+    import io.nexcore.NexCore;
+    import io.nexcore.model.PingResponse;
+
+    public class VerifyInstallation {
+      public static void main(String[] args) {
+        NexCore client = NexCore.builder()
+            .apiKey(System.getenv("NEXCORE_API_KEY"))
+            .build();
+
+        PingResponse status = client.ping();
+        System.out.println("NexCore SDK version: " + client.getVersion());
+        System.out.println("API status: " + (status.isOk() ? "reachable" : "unreachable"));
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+If the ping succeeds, you are ready to move on to authentication and start emitting events.

@@ -1,0 +1,103 @@
+---
+title: "Create and Configure Your First NexCore Project"
+sidebarTitle: "First Project"
+description: "Create a NexCore project, set up your first event stream, configure retention, and invite your teammates — all in one guided walkthrough."
+---
+
+A **project** in NexCore is the top-level container for your streams, API keys, analytics, and team members. Everything you build — from real-time event pipelines to AI-powered dashboards — lives inside a project. In this guide, you will create your first project, set up a stream to receive events, configure data retention, and invite your team so everyone can collaborate from day one.
+
+<Steps>
+  <Step title="Create a Project">
+    From the [NexCore Dashboard](https://app.nexcore.io), click **New Project** in the top navigation bar.
+
+    Fill in the following details:
+
+    - **Project Name** — a short, memorable name such as `my-app` or `acme-production`.
+    - **Region** — choose the region closest to the majority of your users for the lowest latency. See the [Project Regions](#project-regions) table below for options.
+
+    Click **Create Project** to confirm. Your new project will appear in the dashboard within a few seconds.
+  </Step>
+
+  <Step title="Create a Stream">
+    Inside your project, navigate to the **Streams** tab and click **New Stream**.
+
+    - Set the **Stream Name** to `my-first-stream`.
+    - Leave the other settings at their defaults for now — you can tune partitioning and throughput limits later.
+
+    Click **Create Stream**. Your stream is now ready to receive events.
+  </Step>
+
+  <Step title="Configure Retention">
+    By default, NexCore retains events for **7 days**. You can extend this up to **90 days** depending on your plan.
+
+    To change the retention period:
+
+    1. Open the stream you just created and click **Settings**.
+    2. Under **Data Retention**, use the slider or input field to set your desired retention window.
+    3. Click **Save Changes**.
+
+    Events older than the retention period are automatically purged. Set a longer retention window if you need to replay historical events or run retrospective analytics.
+  </Step>
+
+  <Step title="Invite Team Members">
+    Navigate to **Settings → Team** inside your project and click **Invite Member**.
+
+    Enter your teammate's email address and assign them one of the following roles:
+
+    | Role | Permissions |
+    |---|---|
+    | **Owner** | Full control over the project, including billing and deletion |
+    | **Admin** | Manage streams, API keys, and team members; cannot delete the project |
+    | **Developer** | Create and configure streams; emit and read events; cannot manage team |
+    | **Viewer** | Read-only access to streams and analytics dashboards |
+
+    Click **Send Invite**. Your teammate will receive an email with a link to join the project.
+  </Step>
+
+  <Step title="Set Up Environment Variables">
+    Store your project credentials in a `.env` file at the root of your application so they are available at runtime without being hardcoded:
+
+    ```bash .env
+    NEXCORE_API_KEY=nxc_live_xxxxxxxxxxxxxx
+    NEXCORE_PROJECT_ID=proj_01hx9k2z4p
+    ```
+
+    Load these variables in your application using a library such as `dotenv` (Node.js) or your platform's built-in secrets injection, then reference them when initialising the client:
+
+    ```typescript
+    import "dotenv/config";
+    import { NexCore } from "@nexcore/sdk";
+
+    const client = new NexCore({
+      apiKey: process.env.NEXCORE_API_KEY,
+      projectId: process.env.NEXCORE_PROJECT_ID,
+    });
+    ```
+
+    Add `.env` to your `.gitignore` to ensure these credentials are never committed to source control:
+
+    ```bash
+    echo ".env" >> .gitignore
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Project Regions
+
+When creating a project, choose the region that minimises round-trip latency for your event producers and consumers. All regions support the full NexCore feature set.
+
+| Region | Location | Typical Latency |
+|---|---|---|
+| `us-east-1` | Northern Virginia, USA | < 20 ms (US East Coast) |
+| `eu-west-1` | Dublin, Ireland | < 20 ms (Western Europe) |
+| `ap-southeast-1` | Singapore | < 20 ms (Southeast Asia) |
+
+If your traffic originates from multiple continents, consider creating one project per region and using NexCore's cross-region replication (available on the Business plan) to keep data in sync.
+
+---
+
+<Tip>
+  Use **separate projects** for your staging and production environments rather than separate streams within a single project. This gives each environment its own API keys, retention policies, and team permissions, making it impossible for a staging misconfiguration to affect live production data.
+</Tip>

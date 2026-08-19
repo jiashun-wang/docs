@@ -1,0 +1,114 @@
+---
+title: "NexCore API Rate Limits and Quota Management"
+sidebarTitle: "Rate Limits"
+description: "Understand NexCore API rate limits by plan, read response headers to track usage, and implement exponential backoff retry logic in your integration."
+---
+
+NexCore enforces rate limits to ensure fair usage and consistent performance across all customers. Understanding these limits — and building your integration to handle them gracefully — helps you avoid disruptions and build resilient applications that degrade smoothly under load.
+
+## Limits by Plan
+
+Rate limits apply per project and are measured on a rolling 60-second window. Event ingestion limits are measured per second.
+
+| Plan | Requests / min | Events / sec | Concurrent Pipelines |
+|---|---|---|---|
+| Free | 60 | 1,000 | 3 |
+| Pro | 600 | 10,000 | 20 |
+| Growth | 6,000 | 100,000 | 100 |
+| Enterprise | Custom | Custom | Custom |
+
+If you need limits beyond the Growth tier, contact the NexCore sales team to discuss an Enterprise plan with custom quotas tailored to your workload.
+
+## Rate Limit Headers
+
+Every API response includes the following headers so you can monitor your current usage in real time:
+
+| Header | Type | Description |
+|---|---|---|
+| `X-RateLimit-Limit` | integer | Total number of requests allowed in the current window. |
+| `X-RateLimit-Remaining` | integer | Number of requests remaining in the current window. |
+| `X-RateLimit-Reset` | integer | Unix timestamp (seconds) at which the current window resets and `X-RateLimit-Remaining` returns to the full limit. |
+
+<Tip>
+  Monitor `X-RateLimit-Remaining` proactively in your integration rather than waiting for a `429` response. If remaining requests drop below a threshold relevant to your workload, introduce a deliberate delay before continuing — this prevents your integration from hard-stalling and provides a smoother user experience.
+</Tip>
+
+## HTTP 429 Response
+
+When you exceed your rate limit, the API returns `429 Too Many Requests` with a JSON body that includes a `retryAfter` field indicating how many milliseconds to wait before retrying:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "You have exceeded your request rate limit. Please retry after the indicated delay.",
+    "details": {
+      "retryAfter": 4200,
+      "limit": 600,
+      "window": "60s"
+    },
+    "requestId": "req_01HZXXXXX"
+  }
+}
+```
+
+The `retryAfter` value is in **milliseconds**. Wait at least this long before issuing the next request. You can also derive the reset time from the `X-RateLimit-Reset` header.
+
+## Implementing Retry Logic
+
+The recommended pattern for handling `429` responses is **exponential backoff with jitter**. The following TypeScript example wraps any API call and automatically retries on rate limit errors up to a configurable maximum:
+
+```typescript
+async function withRetry(fn: () => Promise<any>, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err.status === 429 && i < maxRetries - 1) {
+        await new Promise(r => setTimeout(r, err.retryAfter || 1000 * 2 ** i));
+      } else throw err;
+    }
+  }
+}
+```
+
+**How it works:**
+
+1. The function attempts the provided `fn` call.
+2. If a `429` error is thrown and retries remain, it waits for either the `retryAfter` value from the error response (in milliseconds) or a calculated backoff (`1s`, `2s`, `4s` for attempts 0–2).
+3. On the last attempt, or for any non-429 error, the error is re-thrown so your calling code can handle it.
+
+You can increase `maxRetries` for batch or background jobs where latency is less critical. For interactive user-facing requests, keep retries low (1–2) and surface an error to the user promptly.
+
+## Batch Requests
+
+For high-throughput event ingestion, use the batch endpoint to emit up to **1,000 events in a single API call**:
+
+```
+POST /v1/events/batch
+```
+
+```json
+// Request
+{
+  "events": [
+    { "stream": "my-stream", "type": "user.click", "payload": { "button": "cta" } },
+    { "stream": "my-stream", "type": "user.scroll", "payload": { "depth": 0.75 } }
+  ]
+}
+```
+
+```json
+// Response
+{
+  "ok": true,
+  "data": {
+    "ingested": 2,
+    "failed": 0,
+    "ids": ["evt_01HZXXXXX", "evt_01HZYYYYY"]
+  }
+}
+```
+
+Batching dramatically reduces the number of API calls needed to ingest large volumes of events, making it easier to stay within your requests-per-minute quota while still achieving high event throughput. Each batch counts as a single request against your rate limit regardless of the number of events it contains.

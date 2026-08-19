@@ -1,0 +1,274 @@
+---
+title: "Deploy NexCore Integrations to the Cloud"
+sidebarTitle: "Cloud Deploy"
+description: "Deploy NexCore-integrated applications to AWS, GCP, Azure, Vercel, and serverless platforms using best-practice environment configuration."
+---
+
+Connecting your NexCore-integrated application to any cloud platform uses the same core principle: supply your credentials through environment variables, keep secrets out of your code and container images, and let NexCore's SDK handle the rest. This guide walks you through deployment patterns for the most common platforms.
+
+<Warning>
+Never hard-code your NexCore API key or any other secret directly in a container image, source file, or build artifact. If an image is published to a public or shared registry, embedded credentials are immediately exposed. Always inject secrets at runtime through your platform's secret management service.
+</Warning>
+
+---
+
+## Environment Variables
+
+Every NexCore deployment should configure the following environment variables at minimum:
+
+| Variable | Description |
+|---|---|
+| `NEXCORE_API_KEY` | Your NexCore API key. The SDK reads this automatically. |
+| `NEXCORE_PROJECT_ID` | The ID of the NexCore project your application connects to. |
+| `NEXCORE_REGION` | The NexCore region to target, e.g. `us-east-1`, `eu-west-1`. |
+
+Commit a `.env.example` file to your repository to document the required variables without exposing real values:
+
+```bash
+# .env.example — copy to .env and fill in your values; never commit .env
+NEXCORE_API_KEY=your_api_key_here
+NEXCORE_PROJECT_ID=proj_xxxxxxxxxxxxxxxx
+NEXCORE_REGION=us-east-1
+```
+
+Use a tool such as [dotenv](https://github.com/motdotla/dotenv) (Node.js) or [python-dotenv](https://pypi.org/project/python-dotenv/) (Python) to load `.env` during local development only. In production, set variables through your platform's native secret store.
+
+---
+
+## Cloud Platform Deployment
+
+<Tabs>
+  <Tab title="AWS Lambda">
+    Store `NEXCORE_API_KEY`, `NEXCORE_PROJECT_ID`, and `NEXCORE_REGION` as **Lambda Environment Variables** in the AWS console, or inject them from AWS Secrets Manager at deploy time using a CI pipeline.
+
+    ```typescript
+    // lambda/handler.ts
+    import NexCore from "@nexcore/sdk";
+
+    const client = new NexCore.Client({
+      // Reads NEXCORE_API_KEY, NEXCORE_REGION from the Lambda environment
+    });
+
+    export const handler = async (event: AWSLambda.APIGatewayProxyEvent) => {
+      const body = JSON.parse(event.body ?? "{}");
+
+      // Emit a NexCore event whenever this Lambda is triggered
+      const nexEvent = await client.events.emit({
+        stream: process.env.NEXCORE_PROJECT_ID + "-stream",
+        type: "lambda.triggered",
+        payload: {
+          path: event.path,
+          method: event.httpMethod,
+          body,
+        },
+      });
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ received: true, eventId: nexEvent.id }),
+      };
+    };
+    ```
+
+    Deploy with the AWS CLI or a framework such as the [AWS SAM CLI](https://aws.amazon.com/serverless/sam/) or [SST](https://sst.dev):
+
+    ```bash
+    # SAM example
+    sam deploy \
+      --stack-name nexcore-integration \
+      --parameter-overrides \
+        NexCoreApiKey=$(aws secretsmanager get-secret-value \
+          --secret-id nexcore/api-key --query SecretString --output text) \
+      --capabilities CAPABILITY_IAM
+    ```
+  </Tab>
+  <Tab title="Google Cloud Functions">
+    Set environment variables in your `gcloud` deployment command or through the Cloud Console's **Runtime, build, connections and security settings** panel. For sensitive values, use **Secret Manager** and reference them as mounted secrets.
+
+    ```python
+    # main.py
+    import os
+    import functions_framework
+    from nexcore import AsyncNexCore
+    import asyncio
+
+    client = AsyncNexCore(
+        api_key=os.environ["NEXCORE_API_KEY"],
+        region=os.environ.get("NEXCORE_REGION", "us-east-1"),
+    )
+
+    @functions_framework.http
+    def handle(request):
+        """HTTP Cloud Function that emits a NexCore event on each invocation."""
+        data = request.get_json(silent=True) or {}
+
+        async def emit():
+            return await client.events.emit(
+                stream=os.environ["NEXCORE_PROJECT_ID"] + "-stream",
+                type="gcf.invoked",
+                payload={"path": request.path, "body": data},
+            )
+
+        event = asyncio.run(emit())
+        return {"received": True, "eventId": event.id}, 200
+    ```
+
+    ```bash
+    # Deploy the function
+    gcloud functions deploy nexcore-handler \
+      --gen2 \
+      --runtime python311 \
+      --trigger-http \
+      --allow-unauthenticated \
+      --set-env-vars NEXCORE_PROJECT_ID=proj_xxxxxxxxxxxxxxxx,NEXCORE_REGION=us-east-1 \
+      --set-secrets NEXCORE_API_KEY=nexcore-api-key:latest
+    ```
+  </Tab>
+  <Tab title="Vercel / Netlify">
+    Add your secrets in the platform dashboard (**Vercel → Project → Settings → Environment Variables** or **Netlify → Site → Configuration → Environment variables**), then access them in your edge or serverless function at runtime.
+
+    ```typescript
+    // api/nexcore-hook.ts  (Vercel Edge Function)
+    import { NextRequest, NextResponse } from "next/server";
+    import NexCore from "@nexcore/sdk";
+
+    export const runtime = "edge";
+
+    const client = new NexCore.Client({
+      apiKey: process.env.NEXCORE_API_KEY,
+      region: process.env.NEXCORE_REGION ?? "us-east-1",
+    });
+
+    export async function POST(req: NextRequest) {
+      const body = await req.json();
+
+      const event = await client.events.emit({
+        stream: `${process.env.NEXCORE_PROJECT_ID}-stream`,
+        type: "edge.request",
+        payload: { url: req.url, body },
+      });
+
+      return NextResponse.json({ received: true, eventId: event.id });
+    }
+    ```
+
+    For Netlify Functions, the pattern is identical — replace the export with a standard Netlify handler and set environment variables in `netlify.toml` or the dashboard:
+
+    ```typescript
+    // netlify/functions/nexcore-hook.ts
+    import { Handler } from "@netlify/functions";
+    import NexCore from "@nexcore/sdk";
+
+    const client = new NexCore.Client({ apiKey: process.env.NEXCORE_API_KEY });
+
+    export const handler: Handler = async (event) => {
+      const body = JSON.parse(event.body ?? "{}");
+
+      const nexEvent = await client.events.emit({
+        stream: `${process.env.NEXCORE_PROJECT_ID}-stream`,
+        type: "netlify.function.invoked",
+        payload: { path: event.path, body },
+      });
+
+      return { statusCode: 200, body: JSON.stringify({ eventId: nexEvent.id }) };
+    };
+    ```
+  </Tab>
+  <Tab title="Docker">
+    Build your image without any secrets baked in. Inject environment variables at container start time using `--env-file`, `-e` flags, or your orchestration platform's secret store (e.g. Kubernetes Secrets, AWS ECS Secrets).
+
+    ```dockerfile
+    # Dockerfile
+    FROM node:20-alpine AS builder
+    WORKDIR /app
+    COPY package*.json ./
+    RUN npm ci --omit=dev
+    COPY . .
+    RUN npm run build
+
+    FROM node:20-alpine AS runner
+    WORKDIR /app
+    # Copy only production dependencies and built output
+    COPY --from=builder /app/node_modules ./node_modules
+    COPY --from=builder /app/dist ./dist
+
+    # Do NOT set NEXCORE_API_KEY here — inject it at runtime
+    ENV NODE_ENV=production
+    ENV NEXCORE_REGION=us-east-1
+
+    EXPOSE 3000
+    CMD ["node", "dist/server.js"]
+    ```
+
+    Run the container and supply secrets at runtime:
+
+    ```bash
+    # Using --env-file (keep .env out of version control)
+    docker run -p 3000:3000 --env-file .env my-nexcore-app
+
+    # Or pass individual variables
+    docker run -p 3000:3000 \
+      -e NEXCORE_API_KEY="$NEXCORE_API_KEY" \
+      -e NEXCORE_PROJECT_ID="$NEXCORE_PROJECT_ID" \
+      my-nexcore-app
+    ```
+
+    In a **Docker Compose** environment, reference variables from a `.env` file:
+
+    ```yaml
+    # docker-compose.yml
+    services:
+      app:
+        image: my-nexcore-app
+        ports:
+          - "3000:3000"
+        environment:
+          - NEXCORE_API_KEY=${NEXCORE_API_KEY}
+          - NEXCORE_PROJECT_ID=${NEXCORE_PROJECT_ID}
+          - NEXCORE_REGION=${NEXCORE_REGION}
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Health Checks
+
+Include a NexCore connectivity check in your application's startup health check so that your orchestration platform can detect misconfigured credentials or network issues before routing live traffic to the instance.
+
+```typescript
+// healthcheck.ts
+import NexCore from "@nexcore/sdk";
+
+const client = new NexCore.Client({ apiKey: process.env.NEXCORE_API_KEY });
+
+export async function healthCheck(): Promise<{ status: "ok" | "error"; detail?: string }> {
+  try {
+    await client.ping();
+    return { status: "ok" };
+  } catch (err) {
+    return { status: "error", detail: (err as Error).message };
+  }
+}
+
+// Express health endpoint
+app.get("/health", async (_req, res) => {
+  const result = await healthCheck();
+  res.status(result.status === "ok" ? 200 : 503).json(result);
+});
+```
+
+For containerised deployments, wire the health endpoint into your platform's liveness probe:
+
+```yaml
+# Kubernetes liveness probe example
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  failureThreshold: 3
+```
+
+A successful `client.ping()` call confirms that the SDK can reach the NexCore API, that your API key is valid, and that the configured region is reachable — all in a single lightweight request.

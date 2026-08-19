@@ -1,0 +1,296 @@
+---
+title: "Data Pipelines: Build and Automate Event Workflows"
+sidebarTitle: "Data Pipelines"
+description: "Build visual data pipelines in NexCore to transform, filter, route, and enrich events automatically — no infrastructure code required."
+---
+
+NexCore pipelines let you transform, filter, route, and enrich events without writing infrastructure code. Instead of gluing together queues, Lambda functions, and custom consumers by hand, you define a pipeline as a sequence of declarative steps that NexCore executes in real time on every event flowing through your stream. Pipelines are version-controlled, observable, and fully manageable via the dashboard or API — so your team can iterate on event workflows the same way it iterates on application code.
+
+## Pipeline Concepts
+
+Every pipeline has three logical parts: a **source stream**, one or more **processing steps**, and one or more **destinations**.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        NexCore Pipeline                         │
+│                                                                 │
+│  ┌──────────┐    ┌──────────────────────────────┐    ┌───────┐  │
+│  │  Source  │───▶│  Step 1 → Step 2 → Step 3   │───▶│  Dst  │  │
+│  │  Stream  │    │  (Filter → Transform → Route)│    │  (s)  │  │
+│  └──────────┘    └──────────────────────────────┘    └───────┘  │
+│                                                                 │
+│  Events flow left-to-right. Each step transforms the event     │
+│  or decides whether it continues downstream.                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- **Source stream**: The NexCore stream that feeds raw events into the pipeline.
+- **Steps**: An ordered list of operations applied to each event. Steps can filter out unwanted events, reshape payloads, call external services, fork events to multiple paths, or aggregate events over time windows.
+- **Destinations**: Where processed events are sent — another NexCore stream, a webhook, a database connector, a cloud storage bucket, or a third-party service.
+
+## Creating a Pipeline
+
+<Steps>
+  <Step title="Open the Pipelines dashboard">
+    In the NexCore dashboard, navigate to **Pipelines** in the left sidebar, then click **New Pipeline**. Give your pipeline a descriptive name (for example, `enrich-and-route-payments`) and an optional description.
+  </Step>
+  <Step title="Choose a source stream">
+    Select the stream that will feed events into the pipeline. You can start the pipeline from the **latest** offset (process only new events) or from the **earliest** offset (replay all retained events from the beginning). For production pipelines, **latest** is the typical choice.
+  </Step>
+  <Step title="Add processing steps">
+    Click **Add Step** and choose from the available step types: **Filter**, **Transform**, **Enrich**, **Route**, or **Aggregate**. You can chain as many steps as you need, and reorder them by dragging. Each step is configured inline — no code deployment required. See [Step Types](#step-types) below for details on each.
+  </Step>
+  <Step title="Choose a destination">
+    Add one or more destinations for the processed events. Supported destinations include NexCore streams, HTTP webhooks, Amazon S3, Google BigQuery, Snowflake, PostgreSQL, and others via the connector catalog. If a Route step is present, each branch can send to a different destination.
+  </Step>
+  <Step title="Activate the pipeline">
+    Review the pipeline summary, then click **Activate**. NexCore deploys the pipeline across its processing cluster in seconds. You'll see live throughput metrics, step latency breakdowns, and error counts on the pipeline detail page as soon as events start flowing.
+  </Step>
+</Steps>
+
+## Step Types
+
+<AccordionGroup>
+  <Accordion title="Filter — Include or exclude events by field value">
+    A Filter step evaluates a condition against each event and either passes the event to the next step or drops it entirely. Use filters to discard noise, limit downstream volume, or segment a single stream into topic-specific sub-flows.
+
+    Filter conditions support equality, inequality, range, regex, and set membership operators. You can combine multiple conditions with `AND` / `OR` logic.
+
+    **Example:** Keep only payment events where the transaction amount exceeds $100 and the currency is USD.
+
+    ```json
+    {
+      "type": "filter",
+      "conditions": [
+        { "field": "$.amount", "op": "gt", "value": 100 },
+        { "field": "$.currency", "op": "eq", "value": "USD" }
+      ],
+      "logic": "AND"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Transform — Rename, map, or compute fields using JSONPath expressions">
+    A Transform step reshapes the event payload. You can rename fields, drop sensitive fields before forwarding events to third parties, compute new fields from existing ones, or reformat values (for example, converting a Unix timestamp to ISO 8601).
+
+    Transformations are written as a list of operations. NexCore supports JSONPath expressions for field selection and a small expression language for computed values.
+
+    **Example:** Rename `usr_id` to `user_id`, remove the internal `_meta` field, and add a `processed_at` timestamp.
+
+    ```json
+    {
+      "type": "transform",
+      "operations": [
+        { "op": "rename", "from": "$.usr_id", "to": "$.user_id" },
+        { "op": "remove", "field": "$._meta" },
+        { "op": "set", "field": "$.processed_at", "value": "{{ now() }}" }
+      ]
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Enrich — Add data from external APIs or lookup tables">
+    An Enrich step makes an outbound call to an external data source and merges the response into the event payload. This is useful for adding user profile data, product catalog details, geolocation from IP addresses, or any reference data your downstream systems need.
+
+    You can enrich from:
+    - **HTTP API**: NexCore calls your endpoint with configurable request mapping and caches responses with a configurable TTL.
+    - **NexCore Lookup Table**: A managed key-value store you populate via the API or CSV import — zero-latency lookups with no external dependency.
+    - **Connected database**: Query a PostgreSQL or MySQL database using a parameterized SQL statement.
+
+    **Example:** Look up the user's subscription tier from the NexCore lookup table and add it to the event.
+
+    ```json
+    {
+      "type": "enrich",
+      "source": {
+        "kind": "lookup-table",
+        "table": "user-tiers",
+        "key": "$.user_id"
+      },
+      "mergeInto": "$.user",
+      "onMiss": "passthrough"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Route — Fork events to multiple destinations based on conditions">
+    A Route step evaluates each event against a set of branch conditions and forwards it to one or more downstream branches. Branches can point to different destination connectors, different NexCore streams, or subsequent pipeline steps.
+
+    Routing is non-exclusive by default: an event can match multiple branches and be forwarded to all of them. Set `mode: "first-match"` to stop after the first matching branch.
+
+    **Example:** Route high-value transactions to the fraud-review stream, EU transactions to the eu-events stream, and everything else to the default-events stream.
+
+    ```json
+    {
+      "type": "route",
+      "mode": "all-matching",
+      "branches": [
+        {
+          "name": "high-value",
+          "condition": { "field": "$.amount", "op": "gt", "value": 10000 },
+          "destination": "stream:fraud-review"
+        },
+        {
+          "name": "eu-region",
+          "condition": { "field": "$.region", "op": "eq", "value": "EU" },
+          "destination": "stream:eu-events"
+        },
+        {
+          "name": "default",
+          "condition": "else",
+          "destination": "stream:default-events"
+        }
+      ]
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Aggregate — Group and summarize events over time windows">
+    An Aggregate step accumulates events over a fixed or sliding time window and emits a single summary event when the window closes. Use aggregations to compute per-minute counts, hourly totals, rolling averages, or any other time-series rollup before sending to downstream systems.
+
+    Aggregations are keyed — you specify a `groupBy` field so that summaries are computed independently for each key (for example, per `user_id` or per `product_id`).
+
+    **Example:** Compute the total payment amount and transaction count per user over rolling 1-minute windows.
+
+    ```json
+    {
+      "type": "aggregate",
+      "window": { "type": "tumbling", "size": "1m" },
+      "groupBy": "$.user_id",
+      "aggregations": [
+        { "op": "sum", "field": "$.amount", "as": "total_amount" },
+        { "op": "count", "as": "transaction_count" }
+      ]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Pipeline API
+
+You can create and manage pipelines programmatically using the Pipelines API. This is recommended for infrastructure-as-code workflows, CI/CD pipeline deployments, and environments where dashboard access is restricted.
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.nexcore.io/v1/pipelines \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "enrich-and-route-payments",
+    "source": {
+      "stream": "payments",
+      "startFrom": "latest"
+    },
+    "steps": [
+      {
+        "type": "filter",
+        "conditions": [
+          { "field": "$.status", "op": "eq", "value": "completed" }
+        ]
+      },
+      {
+        "type": "enrich",
+        "source": {
+          "kind": "lookup-table",
+          "table": "user-tiers",
+          "key": "$.user_id"
+        },
+        "mergeInto": "$.user"
+      },
+      {
+        "type": "route",
+        "mode": "first-match",
+        "branches": [
+          {
+            "name": "high-value",
+            "condition": { "field": "$.amount", "op": "gt", "value": 10000 },
+            "destination": "stream:fraud-review"
+          },
+          {
+            "name": "default",
+            "condition": "else",
+            "destination": "stream:processed-payments"
+          }
+        ]
+      }
+    ],
+    "active": true
+  }'
+```
+
+```typescript TypeScript
+import { NexCoreClient } from '@nexcore/sdk';
+
+const client = new NexCoreClient({ apiKey: process.env.NEXCORE_API_KEY });
+
+const pipeline = await client.pipelines.create({
+  name: 'enrich-and-route-payments',
+  source: {
+    stream: 'payments',
+    startFrom: 'latest',
+  },
+  steps: [
+    {
+      type: 'filter',
+      conditions: [
+        { field: '$.status', op: 'eq', value: 'completed' },
+      ],
+    },
+    {
+      type: 'enrich',
+      source: {
+        kind: 'lookup-table',
+        table: 'user-tiers',
+        key: '$.user_id',
+      },
+      mergeInto: '$.user',
+    },
+    {
+      type: 'route',
+      mode: 'first-match',
+      branches: [
+        {
+          name: 'high-value',
+          condition: { field: '$.amount', op: 'gt', value: 10000 },
+          destination: 'stream:fraud-review',
+        },
+        {
+          name: 'default',
+          condition: 'else',
+          destination: 'stream:processed-payments',
+        },
+      ],
+    },
+  ],
+  active: true,
+});
+
+console.log('Pipeline created:', pipeline.id);
+```
+
+</CodeGroup>
+
+## Error Handling
+
+Production pipelines encounter bad data — malformed payloads, enrichment timeouts, destination outages, and schema mismatches are all real failure modes. NexCore handles these gracefully so that one bad event never stalls your entire pipeline.
+
+**Dead-letter queue (DLQ):** Every pipeline has an automatically provisioned dead-letter stream. Events that fail processing after all retries are written to the DLQ with a full error envelope — the original event payload, the step that failed, the error message, and a timestamp. You can inspect DLQ events in the dashboard or replay them back into the pipeline once you've resolved the root cause.
+
+**Retry policy:** Configure per-step retry behavior to match the semantics of your destination:
+
+```json
+{
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "backoff": "exponential",
+    "initialDelayMs": 250,
+    "maxDelayMs": 5000,
+    "retryOn": ["timeout", "server-error"]
+  }
+}
+```
+
+**Partial failures in aggregations:** If an Aggregate step cannot write its summary event to the destination, the aggregation state is preserved in NexCore's durable store and retried independently — you won't lose rollup data even during a downstream outage.
+
+Monitor error rates, DLQ depth, and retry counts in real time from the **Pipelines → Observability** tab.

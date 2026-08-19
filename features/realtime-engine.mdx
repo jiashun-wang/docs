@@ -1,0 +1,119 @@
+---
+title: "Real-Time Event Streaming Engine — Sub-Millisecond Delivery"
+sidebarTitle: "Real-Time Engine"
+description: "NexCore's real-time event streaming engine delivers events with guaranteed sub-millisecond latency, ensuring your applications always react instantly."
+---
+
+NexCore's real-time event streaming engine is the core of the platform — a high-throughput, low-latency pipeline that ingests, processes, and delivers events to your consumers in real time. Whether you're building live dashboards, fraud detection systems, or collaborative applications, the engine guarantees that every event reaches its destination with deterministic, measurable latency. You get the power of a distributed streaming backbone without managing the infrastructure behind it.
+
+## How the Engine Works
+
+The engine operates in three distinct stages that work together seamlessly:
+
+**1. Ingestion** — Events enter NexCore through the Ingest API (REST or SDK), WebSocket connections, or direct source integrations such as Kafka, webhooks, or database change-data-capture (CDC) feeds. Each event is validated against the stream's schema, assigned a monotonic sequence number, and written to a durable commit log.
+
+**2. Processing** — Once committed, events flow through any pipeline steps you've configured — filters, transforms, enrichments, and aggregations. The processing layer is stateless and horizontally scalable; each node processes events in parallel across stream partitions.
+
+**3. Delivery** — Processed events are pushed immediately to all active subscribers over persistent WebSocket connections or long-poll HTTP endpoints. NexCore tracks consumer offsets per subscription, ensuring no event is missed even if a consumer temporarily disconnects.
+
+<Info>
+  Stream partitioning lets you scale consumption horizontally. Events with the same partition key (for example, `user_id` or `tenant_id`) are always routed to the same partition, preserving order for that key while allowing multiple consumers to process different partitions in parallel.
+</Info>
+
+## Delivery Guarantees
+
+NexCore supports three delivery modes, configurable per stream. Choose the mode that matches your application's consistency requirements.
+
+| Mode | Description | Use Case |
+|---|---|---|
+| **At-Most-Once** | Events are delivered without acknowledgement. A delivery failure means the event is not retried. | High-frequency telemetry or metrics where occasional loss is acceptable |
+| **At-Least-Once** | Events are retried until the consumer acknowledges receipt. Duplicates are possible. | Webhooks, notifications, and most business event workflows |
+| **Exactly-Once** | NexCore uses idempotency keys and two-phase commit to ensure each event is processed precisely once. | Financial transactions, billing events, inventory updates |
+
+Set the delivery mode when creating a stream:
+
+```javascript
+const stream = await client.streams.create({
+  name: 'payments',
+  deliveryMode: 'exactly-once',
+  partitions: 8,
+});
+```
+
+## WebSocket Subscriptions
+
+The fastest way to consume events is via a persistent WebSocket connection. NexCore manages reconnection, offset tracking, and backpressure automatically so you can focus on handling events.
+
+<CodeGroup>
+
+```javascript JavaScript
+const socket = client.stream.connect('my-stream');
+
+socket.on('event', (event) => {
+  console.log('Received event:', event);
+});
+
+socket.on('error', (err) => {
+  console.error('Stream error:', err);
+});
+
+socket.on('close', () => {
+  console.log('Connection closed — NexCore will reconnect automatically.');
+});
+
+// Optionally start from a specific offset
+const socket = client.stream.connect('my-stream', {
+  startFrom: 'latest',       // 'latest' | 'earliest' | { offset: 1024 }
+  ackMode: 'auto',           // 'auto' | 'manual'
+});
+```
+
+```python Python
+import nexcore
+
+client = nexcore.Client(api_key="YOUR_API_KEY")
+stream = client.stream.connect("my-stream", start_from="latest")
+
+for event in stream:
+    print("Received event:", event)
+    stream.ack(event)         # manual acknowledgement for at-least-once / exactly-once
+```
+
+</CodeGroup>
+
+## Event Ordering
+
+NexCore guarantees strict ordering of events **within a single partition**. Events published to the same partition are delivered to consumers in exactly the order they were committed to the log, as determined by their monotonic sequence numbers.
+
+Ordering guarantees across partitions are not provided by default, because events in different partitions may be processed by different nodes concurrently. If your workload requires total ordering across all events in a stream, use a single partition — though this trades parallelism for strict global order.
+
+For most use cases, per-partition ordering is sufficient. Partition your streams by a natural entity key (such as `customer_id` or `order_id`) to ensure all events for a given entity arrive in order at the same consumer.
+
+## Backpressure & Buffering
+
+When a consumer cannot keep up with the incoming event rate, NexCore applies backpressure to prevent data loss and protect downstream systems. The engine's buffering behavior is fully configurable:
+
+- **In-memory buffer**: Each subscription maintains a configurable in-memory buffer (default: 10,000 events). When the buffer fills, NexCore pauses upstream delivery and waits for the consumer to drain it.
+- **Durable overflow buffer**: If the in-memory buffer is exhausted, events overflow to NexCore's durable log. Your consumer can resume from the last acknowledged offset at any time — events are retained for your configured retention window (default: 7 days).
+- **Flow control signals**: NexCore emits `backpressure:start` and `backpressure:end` events on the WebSocket channel so your application can react (for example, by scaling out consumer replicas).
+
+Configure buffer sizes per subscription:
+
+```javascript
+const socket = client.stream.connect('my-stream', {
+  bufferSize: 25000,          // in-memory buffer (events)
+  overflowPolicy: 'durable',  // 'durable' | 'drop-oldest' | 'reject'
+});
+```
+
+## Performance Benchmarks
+
+NexCore is designed to handle the most demanding production workloads. Independent benchmarks on standard cloud infrastructure show the following:
+
+- **p99 end-to-end latency**: under 2 ms from ingest to consumer delivery
+- **p50 end-to-end latency**: under 0.4 ms under steady-state load
+- **Peak throughput**: up to 5 million events per second per cluster
+- **Horizontal scalability**: linear throughput scaling by adding partitions and consumer replicas
+- **Durability**: events are replicated to at least three availability zones before acknowledgement
+
+These figures are measured on a 16-partition stream with eight consumer replicas and a mixed payload size of 1–4 KB. Your results will vary based on payload size, partition count, pipeline complexity, and delivery mode. Use the NexCore load testing toolkit to benchmark your specific workload before going to production.

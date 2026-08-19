@@ -1,0 +1,168 @@
+---
+title: "Extend NexCore with Custom Plugins and Transforms"
+sidebarTitle: "Custom Plugins"
+description: "Build and deploy custom pipeline plugins to add event transforms, external enrichment connectors, and business logic validation steps to NexCore pipelines."
+---
+
+The NexCore plugin system lets you add custom event transforms, external enrichment, and new pipeline step types without modifying your producers or consumers. Plugins are deployed to the NexCore runtime and execute inside your pipeline on every matching event, giving you full programmatic control over your data in motion.
+
+## Plugin Types
+
+NexCore supports three categories of plugins, each with a distinct role in the pipeline:
+
+**Transform Plugin**
+
+A transform plugin receives an event, modifies its payload, and returns the updated event. Use transforms to normalize field names, enrich events with computed values, redact sensitive data, or convert formats.
+
+**Connector Plugin**
+
+A connector plugin pushes events to an external system — a database, data warehouse, third-party API, or message queue — that NexCore doesn't natively support. The event continues downstream in the pipeline after the connector executes, so connectors don't interrupt the flow.
+
+**Validator Plugin**
+
+A validator plugin inspects an event and either passes it through or rejects it. Rejected events are routed to a dead-letter queue (if configured) or dropped with an error logged. Use validators to enforce schema compliance, business rules, or data quality constraints before events reach downstream steps.
+
+## Plugin SDK
+
+Install the NexCore Plugin SDK as a development dependency:
+
+```bash
+npm install --save-dev @nexcore/plugin-sdk
+```
+
+Every plugin is a single TypeScript (or JavaScript) file that calls `definePlugin` and exports the result as default. Here is the minimal scaffold:
+
+```typescript
+import { definePlugin } from '@nexcore/plugin-sdk';
+
+export default definePlugin({
+  name: 'my-transform',
+  type: 'transform',
+  execute(event) {
+    return { ...event, payload: { ...event.payload, processed: true } };
+  }
+});
+```
+
+The `execute` function receives the full NexCore event object and must return:
+- **For transform plugins** — the modified event object.
+- **For connector plugins** — the original event (or a modified version). Throw an error to signal delivery failure.
+- **For validator plugins** — `true` to pass the event through, or `false` (or throw) to reject it.
+
+**Accessing plugin configuration**
+
+You can accept configuration values that operators set in the pipeline builder:
+
+```typescript
+import { definePlugin, PluginContext } from '@nexcore/plugin-sdk';
+
+export default definePlugin({
+  name: 'field-redactor',
+  type: 'transform',
+  config: {
+    fields: { type: 'array', items: 'string', required: true }
+  },
+  execute(event, ctx: PluginContext) {
+    const redacted = { ...event.payload };
+    for (const field of ctx.config.fields) {
+      if (field in redacted) redacted[field] = '[REDACTED]';
+    }
+    return { ...event, payload: redacted };
+  }
+});
+```
+
+<Warning>
+  Plugins run in a sandboxed environment with strict CPU and memory limits: **500ms maximum execution time** per event and **128 MB memory** per plugin instance. Plugins that exceed these limits are terminated and the event is routed to the dead-letter queue. Avoid blocking I/O, large in-memory data structures, or unbounded loops inside `execute`.
+</Warning>
+
+<Tip>
+  Test your plugin locally before deploying with the `nexcore dev` command. It spins up a local NexCore runtime that replays events from a stream or a local JSON fixture file through your plugin, printing the transformed output and any errors to your terminal. Run `nexcore dev --plugin ./plugin.ts --fixture ./test-events.json` to get started.
+</Tip>
+
+## Deploying a Plugin
+
+Once your plugin is ready, deploy it to your NexCore project using the CLI:
+
+```bash
+nexcore plugin deploy --name my-transform --file plugin.ts
+```
+
+The CLI compiles your TypeScript, runs a sandbox validation check, and uploads the bundle to NexCore. On success, the plugin appears in the **Plugins** section of your dashboard and is available to add to any pipeline in your project.
+
+You can list deployed plugins and their versions with:
+
+```bash
+nexcore plugin list
+```
+
+And remove a plugin (when no pipelines reference it) with:
+
+```bash
+nexcore plugin delete --name my-transform
+```
+
+## Using Plugins in Pipelines
+
+After deploying, you can add your plugin as a step in any pipeline:
+
+1. Open the **Pipeline Builder** for your target pipeline in the NexCore dashboard.
+2. Click **Add Step** at the point in the pipeline where you want the plugin to execute.
+3. Select **Custom Plugin** from the step type list.
+4. Choose your deployed plugin from the dropdown.
+5. Fill in any configuration values the plugin declares in its `config` schema.
+6. Click **Save and Deploy** to publish the updated pipeline.
+
+You can also add a plugin step via the API:
+
+```bash
+curl -X PATCH https://api.nexcore.io/v1/pipelines/pipe_7f2d1c \
+  -H "Authorization: Bearer $NEXCORE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "steps": [
+      { "type": "custom_plugin", "plugin": "my-transform", "version": "1.2.0" }
+    ]
+  }'
+```
+
+## Plugin Versioning
+
+NexCore uses semantic versioning for plugins. Each `nexcore plugin deploy` call creates a new patch version by default. You can specify a version explicitly:
+
+```bash
+nexcore plugin deploy --name my-transform --file plugin.ts --version 2.0.0
+```
+
+A newly deployed plugin version is in **staging** status and is not used by any pipelines until you promote it:
+
+```bash
+nexcore plugin promote --name my-transform --version 2.0.0
+```
+
+Pipelines that reference the plugin by a floating `latest` tag will automatically pick up the newly promoted version on their next deployment. Pipelines pinned to a specific version (`1.2.0`) continue using that version until you explicitly update the pipeline configuration. This gives you safe, controlled rollouts — test the new version in a staging pipeline before promoting it to production.
+
+To roll back to a previous version, promote the older version again:
+
+```bash
+nexcore plugin promote --name my-transform --version 1.2.0
+```
+
+## Plugin Marketplace
+
+The NexCore Plugin Marketplace at [marketplace.nexcore.io](https://marketplace.nexcore.io) hosts community-contributed and officially maintained plugins you can install directly into your project without writing any code.
+
+Popular marketplace categories include:
+
+- **Enrichment** — IP geolocation, currency conversion, user profile lookups
+- **Connectors** — Snowflake, BigQuery, Elasticsearch, HubSpot, Salesforce
+- **Validators** — JSON Schema validator, PII detector, event deduplication
+- **Transforms** — Avro/Protobuf deserializer, field masking, timestamp normalizer
+
+Install a marketplace plugin with:
+
+```bash
+nexcore plugin install --marketplace geo-enrich --version latest
+```
+
+Marketplace plugins go through NexCore's security review process before publication, but you should always review a plugin's source code and requested permissions before deploying it to a production pipeline.

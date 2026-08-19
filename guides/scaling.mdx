@@ -1,0 +1,134 @@
+---
+title: "Scale NexCore Pipelines to Billions of Events"
+sidebarTitle: "Scaling"
+description: "Learn how NexCore auto-scales event streams and pipelines, and how to tune partition counts, consumer groups, and buffers for high-throughput workloads."
+---
+
+NexCore is designed to scale elastically — from a few thousand events per day to billions without infrastructure management. Whether you're handling a product launch spike or steady petabyte-scale ingestion, NexCore adjusts capacity automatically and gives you fine-grained controls when you need them.
+
+## Auto-Scaling Overview
+
+NexCore automatically scales ingestion and processing capacity in response to traffic patterns. When your event volume increases, NexCore provisions additional ingestion nodes and scales processing workers behind the scenes. For the vast majority of use cases, no manual configuration is required.
+
+The auto-scaling system operates on two axes:
+
+- **Ingestion scaling** — additional ingest endpoints are added when sustained throughput exceeds 70% of current capacity for more than 30 seconds.
+- **Processing scaling** — pipeline workers scale out when processing lag crosses a configurable threshold (default: 5 seconds).
+
+Scale-in happens gradually after traffic subsides, with a minimum cool-down period of 2 minutes to avoid thrashing during bursty workloads.
+
+## Stream Partitioning
+
+Partitions are the fundamental unit of parallelism in NexCore. Each stream is divided into one or more partitions, and events are distributed across them — either by a partition key you specify or round-robin by default. Multiple consumers can read from different partitions simultaneously, enabling linear horizontal scaling.
+
+**Choosing a partition count**
+
+As a rule of thumb, set the partition count to the maximum number of consumers you expect to run in parallel. You can always increase partitions later; decreasing them requires re-creating the stream.
+
+Set the partition count when creating a stream via the API:
+
+```bash
+curl -X POST https://api.nexcore.io/v1/streams \
+  -H "Authorization: Bearer $NEXCORE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "payments",
+    "partitions": 12,
+    "retention_hours": 168
+  }'
+```
+
+Or from the **Dashboard → Streams → New Stream**, set the **Partition Count** field under Advanced Settings.
+
+**Using a partition key**
+
+Specifying a partition key guarantees that all events sharing that key land on the same partition, preserving order for that key:
+
+```typescript
+await client.stream.emit('payments', {
+  payload: { amount: 99.99, currency: 'USD' },
+  partitionKey: event.customerId   // all events for a customer go to the same partition
+});
+```
+
+## Consumer Groups
+
+A consumer group is a named set of consumers that collectively read all partitions of a stream. NexCore distributes partitions evenly across the members of a group, so each event is processed by exactly one consumer in the group. Adding more consumers to a group is the primary way to scale throughput horizontally.
+
+<Tip>
+  Use consumer groups whenever you deploy multiple instances of a worker service. Each instance joins the same group, and NexCore automatically rebalances partitions when instances start or stop — no coordination code required on your end.
+</Tip>
+
+```typescript
+const consumer = client.stream.consume('my-stream', {
+  consumerGroup: 'analytics-workers',
+  partitions: 'auto'
+});
+
+consumer.on('event', async (event) => {
+  await processEvent(event);
+  await event.ack();
+});
+
+consumer.start();
+```
+
+Setting `partitions: 'auto'` instructs NexCore to assign partitions dynamically based on the current group membership. You can also pin a consumer to specific partitions by passing an array: `partitions: [0, 1, 2]`.
+
+**Group offset management**
+
+Each consumer group tracks its own offset independently. Two groups reading the same stream do not interfere with each other, making it safe to run independent processing pipelines (analytics, archival, alerting) against a single stream.
+
+## Throughput Limits by Plan
+
+NexCore enforces soft limits on a per-project basis. You receive a warning notification at 80% utilization before hard limits are applied.
+
+| Plan         | Events/sec | Streams | Pipelines | Retention  |
+|--------------|-----------|---------|-----------|------------|
+| Free         | 500       | 3       | 2         | 24 hours   |
+| Pro          | 5,000     | 25      | 10        | 7 days     |
+| Growth       | 50,000    | 100     | 50        | 30 days    |
+| Enterprise   | Unlimited | Unlimited | Unlimited | Custom     |
+
+<Note>
+  Enterprise plans support custom throughput limits, dedicated ingestion infrastructure, and negotiated SLAs. Contact the NexCore sales team to discuss requirements for workloads exceeding 50,000 events/sec or retention beyond 30 days.
+</Note>
+
+## Backpressure Configuration
+
+When downstream consumers or pipeline steps cannot keep up with the ingest rate, NexCore applies backpressure through configurable buffer and overflow settings.
+
+**Buffer size**
+
+The `bufferSize` setting controls how many unacknowledged events are held in memory per partition before overflow behavior activates. Larger buffers absorb short spikes at the cost of higher memory usage.
+
+```typescript
+const consumer = client.stream.consume('orders', {
+  consumerGroup: 'order-processor',
+  partitions: 'auto',
+  bufferSize: 10000,          // events held in-memory per partition
+  overflowBehavior: 'pause'   // 'pause' | 'drop' | 'dlq'
+});
+```
+
+**Overflow behaviors**
+
+| Behavior | Effect |
+|----------|--------|
+| `pause`  | Applies backpressure to producers; ingest rate slows until the buffer drains. This is the safest option and the default. |
+| `drop`   | Newest incoming events are discarded until the buffer drains. Use only when approximate data is acceptable. |
+| `dlq`    | Overflowing events are routed to a dead-letter queue for later reprocessing. Requires a DLQ to be configured on the stream. |
+
+You can also configure overflow behavior per-stream from the Dashboard under **Streams → [Stream Name] → Settings → Backpressure**.
+
+## Monitoring Scale
+
+Understanding your pipeline's scaling behavior requires tracking a few key metrics. Refer to the [Monitoring guide](/guides/monitoring) for full details on the dashboard and Metrics API.
+
+The most important metrics for scaling decisions are:
+
+- **Ingestion rate** (`events_ingested_per_sec`) — the current event throughput entering your stream. Compare against your plan limit to know when to upgrade.
+- **Processing lag** (`consumer_lag_seconds`) — how far behind the slowest consumer group is. A growing lag signals that you need more consumers or a higher partition count.
+- **Error rate** (`pipeline_error_rate`) — the percentage of events that fail pipeline processing. A spike here often indicates a transform exception or downstream connector issue, not a scaling problem.
+
+Set up alerts on `consumer_lag_seconds > 10` and `events_ingested_per_sec > 0.8 * plan_limit` to get early warning before you hit capacity.

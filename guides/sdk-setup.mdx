@@ -1,0 +1,288 @@
+---
+title: "NexCore SDK Setup and Integration Guide"
+sidebarTitle: "SDK Setup"
+description: "Install and configure official NexCore SDKs for TypeScript, Python, Go, and Java to integrate streaming and analytics into your app."
+---
+
+NexCore provides official SDKs for the most popular languages — each wraps the REST API and WebSocket interface with idiomatic helpers, typed models, automatic retries, and built-in error handling so you can focus on building features instead of managing HTTP boilerplate.
+
+<Tip>
+Store your API key in an environment variable such as `NEXCORE_API_KEY` and never commit it to source control. Every SDK reads this variable by default when no explicit key is provided.
+</Tip>
+
+---
+
+## Available SDKs
+
+<CardGroup cols={2}>
+  <Card title="JavaScript / TypeScript" icon="js" href="https://www.npmjs.com/package/@nexcore/sdk">
+    **@nexcore/sdk** — Full TypeScript types, ESM + CJS builds, and native `async/await` support. Works in Node.js 18+ and modern browsers.
+  </Card>
+  <Card title="Python" icon="python" href="https://pypi.org/project/nexcore-python/">
+    **nexcore-python** — Supports Python 3.9+, asyncio-native with `httpx`, and a synchronous wrapper for scripting use-cases.
+  </Card>
+  <Card title="Go" icon="golang" href="https://pkg.go.dev/github.com/nexcore/nexcore-go">
+    **nexcore-go** — Idiomatic Go module using `net/http`, context propagation, and structured logging via `slog`.
+  </Card>
+  <Card title="Java" icon="java" href="https://central.sonatype.com/artifact/io.nexcore/nexcore-java">
+    **nexcore-java** — Compatible with Java 11+ and Spring Boot 3. Provides both blocking and reactive (`Mono`/`Flux`) APIs.
+  </Card>
+</CardGroup>
+
+---
+
+## TypeScript / JavaScript
+
+### Installation
+
+```bash
+npm install @nexcore/sdk
+# or
+yarn add @nexcore/sdk
+# or
+pnpm add @nexcore/sdk
+```
+
+### Full Example
+
+```typescript
+import NexCore from "@nexcore/sdk";
+
+// The client picks up NEXCORE_API_KEY from the environment automatically.
+const client = new NexCore.Client({
+  apiKey: process.env.NEXCORE_API_KEY,
+  region: "us-east-1",
+});
+
+async function main() {
+  // 1. Emit an event to a stream
+  const event = await client.events.emit({
+    stream: "my-stream",
+    type: "user.signup",
+    payload: { userId: "42", email: "user@example.com" },
+  });
+  console.log("Emitted event:", event.id);
+
+  // 2. Subscribe to a stream and receive events in real time
+  const subscription = client.streams.subscribe("my-stream", {
+    eventTypes: ["user.signup", "payment.completed"],
+  });
+
+  subscription.on("event", (evt) => {
+    console.log("Received:", evt.type, evt.payload);
+  });
+
+  subscription.on("error", (err) => {
+    console.error("Stream error:", err.message);
+  });
+
+  // Run for 10 seconds then disconnect
+  await new Promise((resolve) => setTimeout(resolve, 10_000));
+  subscription.close();
+
+  // 3. List all projects in your organisation
+  const projects = await client.projects.list();
+  for (const project of projects.data) {
+    console.log(`Project: ${project.name} (${project.id})`);
+  }
+}
+
+main();
+```
+
+---
+
+## Python
+
+### Installation
+
+```bash
+pip install nexcore-python
+```
+
+### Full Example
+
+```python
+import asyncio
+import os
+from nexcore import AsyncNexCore
+
+async def main():
+    # Initialise the async client
+    client = AsyncNexCore(
+        api_key=os.environ["NEXCORE_API_KEY"],
+        region="us-east-1",
+    )
+
+    # 1. Emit an event to a stream
+    event = await client.events.emit(
+        stream="my-stream",
+        type="user.signup",
+        payload={"userId": "42", "email": "user@example.com"},
+    )
+    print(f"Emitted event: {event.id}")
+
+    # 2. Subscribe to a stream and receive events in real time
+    async with client.streams.subscribe(
+        "my-stream",
+        event_types=["user.signup", "payment.completed"],
+    ) as subscription:
+        async for evt in subscription:
+            print(f"Received: {evt.type}", evt.payload)
+            if evt.type == "payment.completed":
+                break  # stop after first payment event in this demo
+
+    # 3. List all projects in your organisation
+    projects = await client.projects.list()
+    for project in projects.data:
+        print(f"Project: {project.name} ({project.id})")
+
+    await client.close()
+
+asyncio.run(main())
+```
+
+For synchronous scripts you can use the blocking `NexCore` client instead:
+
+```python
+from nexcore import NexCore
+import os
+
+client = NexCore(api_key=os.environ["NEXCORE_API_KEY"])
+event = client.events.emit(
+    stream="my-stream",
+    type="order.placed",
+    payload={"orderId": "ORD-9981"},
+)
+print(event.id)
+```
+
+---
+
+## Go
+
+### Installation
+
+```bash
+go get github.com/nexcore/nexcore-go
+```
+
+### Full Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "time"
+
+    nexcore "github.com/nexcore/nexcore-go"
+)
+
+func main() {
+    // Initialise the client — reads NEXCORE_API_KEY from the environment
+    client, err := nexcore.NewClient(
+        nexcore.WithAPIKey(os.Getenv("NEXCORE_API_KEY")),
+        nexcore.WithRegion("us-east-1"),
+    )
+    if err != nil {
+        log.Fatalf("failed to create client: %v", err)
+    }
+
+    ctx := context.Background()
+
+    // 1. Emit an event
+    evt, err := client.Events.Emit(ctx, &nexcore.EmitRequest{
+        Stream:  "my-stream",
+        Type:    "user.signup",
+        Payload: map[string]any{"userId": "42", "email": "user@example.com"},
+    })
+    if err != nil {
+        log.Fatalf("emit error: %v", err)
+    }
+    fmt.Println("Emitted event:", evt.ID)
+
+    // 2. Subscribe to a stream
+    sub, err := client.Streams.Subscribe(ctx, "my-stream", &nexcore.SubscribeOptions{
+        EventTypes: []string{"user.signup", "payment.completed"},
+    })
+    if err != nil {
+        log.Fatalf("subscribe error: %v", err)
+    }
+    defer sub.Close()
+
+    timeout := time.After(10 * time.Second)
+    for {
+        select {
+        case event := <-sub.Events():
+            fmt.Printf("Received: %s %v\n", event.Type, event.Payload)
+        case err := <-sub.Errors():
+            log.Println("Stream error:", err)
+        case <-timeout:
+            fmt.Println("Done")
+            return
+        }
+    }
+
+    // 3. List projects
+    projects, err := client.Projects.List(ctx, nil)
+    if err != nil {
+        log.Fatalf("list projects error: %v", err)
+    }
+    for _, p := range projects.Data {
+        fmt.Printf("Project: %s (%s)\n", p.Name, p.ID)
+    }
+}
+```
+
+---
+
+## SDK Configuration
+
+All SDK clients accept the following configuration options. Pass them at construction time:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `apiKey` | `string` | `$NEXCORE_API_KEY` | Your NexCore API key. Falls back to the `NEXCORE_API_KEY` environment variable if omitted. |
+| `baseUrl` | `string` | `https://api.nexcore.io/v1` | Override the base URL, for example to point at a self-hosted NexCore instance or a staging environment. |
+| `timeout` | `number` (ms) | `30000` | Request timeout in milliseconds. Applies to all REST calls. WebSocket subscriptions use a separate keep-alive mechanism. |
+| `retries` | `number` | `3` | Number of automatic retries on transient errors (5xx, network timeouts). Uses exponential backoff with jitter. |
+| `region` | `string` | `"us-east-1"` | NexCore region to connect to. Determines the nearest data plane endpoint for lowest latency. |
+
+---
+
+## Error Handling
+
+The SDK throws structured error types so you can handle different failure scenarios precisely:
+
+```typescript
+import NexCore from "@nexcore/sdk";
+
+const client = new NexCore.Client({ apiKey: process.env.NEXCORE_API_KEY });
+
+try {
+  await client.events.emit({ stream: "my-stream", payload: { action: "click" } });
+} catch (err) {
+  if (err instanceof NexCore.AuthError) {
+    // API key is missing, expired, or does not have permission for this operation
+    console.error("Invalid API key");
+  } else if (err instanceof NexCore.RateLimitError) {
+    // You have exceeded your plan's request quota
+    console.error("Rate limit hit, retry after", err.retryAfter, "ms");
+  } else if (err instanceof NexCore.NotFoundError) {
+    // The specified stream or resource does not exist
+    console.error("Resource not found:", err.resource);
+  } else if (err instanceof NexCore.NetworkError) {
+    // A transient network failure occurred after all retries were exhausted
+    console.error("Network error:", err.message);
+  } else {
+    // Re-throw unexpected errors
+    throw err;
+  }
+}
+```
+
+The same error class hierarchy is available in every SDK — refer to each SDK's reference documentation for the language-specific class names.

@@ -1,0 +1,150 @@
+---
+title: "Key Concepts: Projects, Events, Pipelines & Streams"
+sidebarTitle: "Key Concepts"
+description: "Understand NexCore's core data model and terminology — projects, streams, events, pipelines, connectors, and API keys — before you start building."
+---
+
+NexCore introduces a small set of carefully chosen concepts that form the foundation of everything you'll build on the platform. Taking a few minutes to understand how these primitives relate to each other will save you significant time as you configure streams, design pipelines, and integrate your applications. This page defines each concept clearly, explains how it fits into the broader data model, and gives you enough context to make good architectural decisions from day one.
+
+## Core Concepts
+
+<AccordionGroup>
+  <Accordion title="Project" icon="folder">
+    A **Project** is the primary unit of isolation in NexCore. Every stream, pipeline, API key, event, and connector belongs to exactly one project. Projects are contained within a workspace and act as a hard boundary — data, configuration, and access controls do not leak between projects.
+
+    You typically create one project per environment or per independently deployable service. Common patterns include:
+
+    - A `production` project, a `staging` project, and a `development` project for a single application
+    - One project per product line if multiple products share the same NexCore workspace
+    - Separate projects for different business units with distinct compliance requirements
+
+    Each project has its own:
+    - **Streams** — named event channels unique to the project
+    - **Pipelines** — processing logic attached to those streams
+    - **API keys** — credentials used to publish and consume events
+    - **Connectors** — integrations with external systems
+    - **Retention settings** — how long events are stored before expiry
+    - **Usage quotas** — the project's share of your workspace plan limits
+
+    You can view and manage all your projects from the NexCore dashboard or via the Projects API.
+  </Accordion>
+
+  <Accordion title="Stream" icon="wave-sine">
+    A **Stream** is a named, ordered channel through which events flow. You publish events to a stream and consume them from it — either in real time via WebSocket or by polling the Events API. Streams are the central organizing concept for your data within a project.
+
+    Every stream belongs to a single project and has a unique name within that project (for example, `user-actions`, `payment-events`, or `sensor-readings`). You can create as many streams as your plan allows.
+
+    Streams have a few important properties you configure at creation time:
+
+    - **Retention period** — How long NexCore stores events in the stream before they expire. Options range from 1 hour (useful for ephemeral processing) to 365 days (for audit and replay use cases).
+    - **Schema** — An optional JSON Schema that NexCore enforces on every inbound event. When a schema is attached, invalid events are rejected at the ingestion layer with a descriptive error.
+    - **Partitioning key** — An optional field path (e.g., `$.user_id`) used to route events to consistent partitions, ensuring ordered processing for events that share the same key value.
+
+    Streams are append-only — you cannot update or delete individual events after they've been published. This immutability is what makes streams safe to replay, audit, and process multiple times with different pipelines.
+  </Accordion>
+
+  <Accordion title="Event" icon="bolt">
+    An **Event** is a single unit of data in NexCore — a JSON object representing something that happened at a specific point in time. Events are immutable once published and are the atomic unit that flows through streams and pipelines.
+
+    Every event in NexCore has the following structure:
+
+    ```json
+    {
+      "id": "evt_01hx9k2m3n4p5q6r7s8t9u0v",
+      "type": "payment.completed",
+      "timestamp": "2024-11-15T14:32:10.482Z",
+      "stream": "payment-events",
+      "data": {
+        "amount": 4999,
+        "currency": "usd",
+        "customer_id": "cust_abc123",
+        "payment_method": "card"
+      },
+      "metadata": {
+        "source": "checkout-service",
+        "version": "2.1.0",
+        "region": "us-east-1"
+      }
+    }
+    ```
+
+    The fields break down as follows:
+
+    - `id` — A unique, NexCore-assigned identifier for the event. Use this for deduplication and tracing.
+    - `type` — A dot-namespaced string describing what happened (e.g., `user.signed_up`, `order.shipped`). You define and own your event types.
+    - `timestamp` — The ISO 8601 UTC timestamp of when the event occurred. NexCore uses this for ordering and time-windowed aggregations.
+    - `data` — Your application's payload. Any valid JSON object is accepted, subject to the stream's optional schema.
+    - `metadata` — Optional key-value pairs for operational context (source service, version, correlation IDs, etc.). NexCore does not interpret metadata but makes it available downstream.
+
+    When you publish an event, NexCore returns the assigned `id` and a server-side `received_at` timestamp so you can correlate your application's publish call with the event's position in the stream.
+  </Accordion>
+
+  <Accordion title="Pipeline" icon="diagram-project">
+    A **Pipeline** is a sequence of processing steps that NexCore applies to events as they flow through a stream. Pipelines are the mechanism by which you transform, enrich, filter, and route your data before it reaches downstream consumers.
+
+    You attach a pipeline to a stream, and every event that arrives in that stream is automatically passed through the pipeline's steps in order. A pipeline can contain any combination of the following step types:
+
+    - **Filter** — Evaluates a condition against each event and drops events that don't match. For example, only pass events where `data.amount > 1000`.
+    - **Transform** — Modifies the event's `data` or `metadata` fields. You can rename keys, compute derived values, redact PII, or flatten nested objects.
+    - **Enrich** — Calls an external HTTP endpoint or a NexCore-managed lookup table to add additional context to the event (e.g., resolving a `customer_id` to a full customer profile).
+    - **AI Step** — Routes the event through NexCore's AI Engine to apply a classification model, anomaly detector, embedding generator, or custom model endpoint. The result is added to the event's `data` before the next step runs.
+    - **Branch** — Splits the pipeline into multiple paths based on a condition, allowing different event types to follow different processing logic within the same pipeline.
+    - **Fan-out** — Sends a copy of the event to multiple destination streams or connectors simultaneously.
+
+    Pipelines are versioned. When you update a pipeline, you can choose to apply the new version immediately or run it in shadow mode (processing events with the new logic without affecting live outputs) until you're confident in the change.
+  </Accordion>
+
+  <Accordion title="Connector" icon="plug">
+    A **Connector** is a pre-built integration that moves data between NexCore and an external system. Connectors can act as **sources** (pushing data into a NexCore stream) or **sinks** (delivering processed events to an external destination).
+
+    **Source connectors** let you ingest data from external systems without writing custom ingestion code:
+    - Databases (PostgreSQL, MySQL) via change data capture (CDC)
+    - SaaS platforms (Stripe, Salesforce, Segment) via native webhooks or polling
+    - Message brokers (Kafka, SQS) for migrating to or complementing NexCore
+
+    **Sink connectors** deliver events from NexCore pipelines to external systems:
+    - **Webhooks** — HTTP POST to any HTTPS endpoint with configurable headers, retry logic, and signature verification
+    - **Databases** — Write events directly to PostgreSQL, MySQL, BigQuery, or Snowflake tables
+    - **Object storage** — Archive events to S3, GCS, or Azure Blob Storage in JSON, Parquet, or CSV format
+    - **Alerting** — Route matched events to Slack, PagerDuty, or email
+
+    Each connector is configured at the project level and can be attached to one or more pipeline fan-out steps. Connector delivery is asynchronous and monitored — you can inspect delivery success rates, retry queues, and error logs from the dashboard.
+  </Accordion>
+
+  <Accordion title="API Key" icon="key">
+    An **API Key** is a credential that authenticates requests to NexCore's APIs on behalf of a specific project. Every API call — publishing events, reading from streams, managing pipelines — must include a valid API key.
+
+    API keys in NexCore are:
+
+    - **Project-scoped** — A key is tied to exactly one project. It cannot be used to access resources in another project, even within the same workspace.
+    - **Permission-scoped** — Each key is created with one or more permissions: `events:write` (publish events), `events:read` (consume events), `pipelines:manage` (create and update pipelines), `admin` (full project access). Grant only the permissions each service or integration actually needs.
+    - **Rotatable** — You can generate a replacement key and deprecate an old one without downtime. NexCore supports a brief overlap window during which both keys are valid.
+    - **Auditable** — Every API call made with a key is logged with the key's ID, the calling IP address, and the action performed. You can review this audit log from the dashboard or via the Audit API.
+
+    You include your API key in the `Authorization` header of every request:
+
+    ```http
+    Authorization: Bearer nxk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    Keep your API keys out of source control. Use environment variables or a secrets manager, and use NexCore's key permissions system to ensure that a compromised key has limited blast radius.
+  </Accordion>
+
+  <Accordion title="Workspace" icon="building">
+    A **Workspace** is the top-level organizational container in NexCore. When you sign up, NexCore creates a workspace for you automatically. Your workspace is the home for your team, your billing information, your SSO configuration, and all of your projects.
+
+    Think of a workspace as your company's account within NexCore. Within a workspace you can:
+
+    - **Invite team members** and assign them workspace-level roles (`owner`, `admin`, `member`, `viewer`)
+    - **Create and manage projects** — each project inherits the workspace's plan limits but can be given independent retention and quota settings
+    - **Configure SSO** — Enterprise workspaces can enforce single sign-on via SAML 2.0 or OIDC so that all team members authenticate through your identity provider
+    - **View aggregated usage** — See total event throughput, storage, and connector activity across all projects in one place
+    - **Manage billing** — Upgrade, downgrade, or cancel your plan; view invoices; and configure spend alerts
+
+    If your organization runs multiple independent platforms or business units, you can create additional workspaces from your account settings. Each workspace has its own isolated data, team, and billing.
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  Adopt a consistent naming convention for your streams and event types from day one — it will pay dividends as your project grows. For streams, use lowercase kebab-case nouns that describe the data domain: `user-actions`, `payment-events`, `inventory-updates`. For event types, use dot-namespaced verb phrases in the past tense that describe what happened: `user.signed_up`, `payment.completed`, `inventory.item_reserved`. This convention makes pipeline filters, dashboard queries, and team communication significantly clearer, and it aligns with the patterns used throughout NexCore's example code and documentation.
+</Tip>

@@ -1,47 +1,107 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with NexCore in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Go from zero to sending your first event and seeing real-time results in the NexCore dashboard — no prior setup required."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+In this guide, you will create a NexCore account, install the SDK, authenticate with an API key, and emit your first event — all in under five minutes. By the end, you will see live event data streaming into your dashboard and be ready to build on top of NexCore's real-time infrastructure.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+<Note>
+  The free tier includes **1,000,000 events per month** at no cost. No credit card is required to get started.
+</Note>
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Create Your Account">
+    Head to [app.nexcore.io](https://app.nexcore.io) and sign up for a free account. The free tier requires no credit card and gives you full access to the platform's core features so you can start building immediately.
+  </Step>
 
-    ```bash
-    npm install your-package
+  <Step title="Install the SDK">
+    Install the NexCore SDK into your project using your preferred package manager:
+
+    <CodeGroup>
+      ```bash npm
+      npm install @nexcore/sdk
+      ```
+
+      ```bash yarn
+      yarn add @nexcore/sdk
+      ```
+
+      ```bash pnpm
+      pnpm add @nexcore/sdk
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Get Your API Key">
+    In the NexCore dashboard, navigate to **Project Settings → API Keys → Create Key**. Give your key a descriptive name (for example, `local-dev`) and click **Create**.
+
+    Your new API key will be displayed once — copy it and store it somewhere safe. It follows this format:
+
+    ```
+    nxc_live_xxxxxxxxxxxxxx
+    ```
+
+    You will use this key to authenticate every request you make to NexCore.
+  </Step>
+
+  <Step title="Initialize the Client">
+    Import and initialize the NexCore client in your application, passing in your API key:
+
+    <CodeGroup>
+      ```typescript TypeScript
+      import { NexCore } from "@nexcore/sdk";
+
+      const client = new NexCore({
+        apiKey: process.env.NEXCORE_API_KEY,
+      });
+      ```
+
+      ```javascript JavaScript
+      const { NexCore } = require("@nexcore/sdk");
+
+      const client = new NexCore({
+        apiKey: process.env.NEXCORE_API_KEY,
+      });
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Emit Your First Event">
+    Use the `client.events.emit()` method to send your first event to a stream. Events are plain JSON objects, so you can include any properties that are meaningful to your application:
+
+    ```typescript TypeScript
+    await client.events.emit({
+      stream: "my-first-stream",
+      event: "user.signed_up",
+      data: {
+        userId: "usr_01hx9k2z4p",
+        email: "ada@example.com",
+        plan: "free",
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    console.log("Event emitted successfully!");
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
-
-    ```bash
-    your-cli start
-    ```
+  <Step title="View in Dashboard">
+    Open the **Streams** section in the NexCore dashboard and select `my-first-stream`. You will see your event appear in the **Live Events** feed within seconds. From here you can inspect the full event payload, apply filters, and set up real-time analytics on your incoming data.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+---
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+## What's Next?
+
+Explore the rest of the NexCore documentation to go deeper:
+
+<CardGroup cols={2}>
+  <Card title="API Overview" icon="code" href="/api/overview">
+    Explore the full NexCore REST API — endpoints, request formats, and response schemas.
+  </Card>
+  <Card title="SDK Setup Guide" icon="wrench" href="/guides/sdk-setup">
+    Learn advanced SDK configuration options, batching, retries, and multi-environment setups.
+  </Card>
+</CardGroup>

@@ -1,0 +1,394 @@
+---
+title: "NexCore REST API Endpoints Reference"
+sidebarTitle: "Endpoints"
+description: "Complete reference for all NexCore REST API endpoints covering projects, events, streams, pipelines, AI analysis, and platform metrics."
+---
+
+Below you will find all available NexCore API endpoints, organized by resource. Each entry shows the HTTP method, path, a description of what the endpoint does, and example request and response payloads. All paths are relative to the base URL `https://api.nexcore.io`.
+
+---
+
+## Projects
+
+Projects are the top-level container for all NexCore resources. Every stream, pipeline, and API key belongs to a project.
+
+### `GET /v1/projects`
+
+List all projects accessible to the authenticated API key.
+
+**Response:** Returns an array of project summary objects.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "proj_01HZXXXXX",
+        "name": "Production App",
+        "region": "us-east-1",
+        "created_at": "2024-09-15T12:00:00Z"
+      }
+    ],
+    "nextCursor": null,
+    "hasMore": false
+  }
+}
+```
+
+---
+
+### `POST /v1/projects`
+
+Create a new project.
+
+<ParamField body="name" type="string" required>
+  A human-readable name for the project. Must be unique within your account. Maximum 64 characters.
+</ParamField>
+
+<ParamField body="region" type="string" required>
+  The cloud region where the project's data will be stored and processed. Accepted values: `us-east-1`, `eu-west-1`, `ap-southeast-1`.
+</ParamField>
+
+<ParamField body="retention_days" type="integer">
+  Number of days to retain raw event data. Defaults to `30`. Maximum is `365` on Pro and above.
+</ParamField>
+
+```json
+// Request
+{
+  "name": "Production App",
+  "region": "us-east-1",
+  "retention_days": 30
+}
+```
+
+```json
+// Response
+{
+  "ok": true,
+  "data": {
+    "id": "proj_01HZXXXXX",
+    "name": "Production App",
+    "region": "us-east-1",
+    "created_at": "2024-09-15T12:00:00Z"
+  }
+}
+```
+
+---
+
+### `GET /v1/projects/{id}`
+
+Retrieve a single project by its ID.
+
+**Path parameter:** `id` — the project ID (e.g., `proj_01HZXXXXX`).
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "proj_01HZXXXXX",
+    "name": "Production App",
+    "region": "us-east-1",
+    "retention_days": 30,
+    "created_at": "2024-09-15T12:00:00Z"
+  }
+}
+```
+
+---
+
+### `DELETE /v1/projects/{id}`
+
+Permanently delete a project and all resources within it, including streams, pipelines, and historical events. This action is irreversible.
+
+**Path parameter:** `id` — the project ID to delete.
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+---
+
+## Events
+
+Events are the core data unit in NexCore. You emit events to named streams and query them later for analysis, replay, or downstream processing.
+
+### `POST /v1/events`
+
+Emit a single event to a stream. The event is ingested immediately and available for real-time subscribers and historical queries.
+
+<ParamField body="stream" type="string" required>
+  The name of the target stream. The stream must already exist within the authenticated project.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  A dot-namespaced event type identifier (e.g., `user.click`, `order.placed`). Maximum 128 characters.
+</ParamField>
+
+<ParamField body="payload" type="object">
+  Arbitrary JSON object containing the event data. Maximum payload size is 256 KB.
+</ParamField>
+
+```json
+// Request
+{
+  "stream": "my-stream",
+  "type": "user.click",
+  "payload": { "button": "cta" }
+}
+```
+
+```json
+// Response
+{
+  "ok": true,
+  "data": {
+    "id": "evt_01HZXXXXX",
+    "timestamp": "2024-09-15T12:00:01Z"
+  }
+}
+```
+
+---
+
+### `GET /v1/events`
+
+Query historical events from a stream with optional filtering.
+
+<ParamField query="stream" type="string" required>
+  The name of the stream to query.
+</ParamField>
+
+<ParamField query="type" type="string">
+  Filter events to a specific type (e.g., `user.click`). Supports prefix matching with a trailing `*` (e.g., `user.*`).
+</ParamField>
+
+<ParamField query="from" type="string">
+  ISO 8601 UTC timestamp. Only return events at or after this time.
+</ParamField>
+
+<ParamField query="to" type="string">
+  ISO 8601 UTC timestamp. Only return events before this time.
+</ParamField>
+
+<ParamField query="limit" type="integer">
+  Maximum number of events to return. Defaults to `20`, maximum `100`.
+</ParamField>
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "evt_01HZXXXXX",
+        "stream": "my-stream",
+        "type": "user.click",
+        "payload": { "button": "cta" },
+        "timestamp": "2024-09-15T12:00:01Z"
+      }
+    ],
+    "nextCursor": "cur_01HZXXXXX",
+    "hasMore": true
+  }
+}
+```
+
+---
+
+## Streams
+
+Streams are named, ordered, and partitioned channels for event data. All events are emitted to and read from streams.
+
+### `GET /v1/streams`
+
+List all streams in the authenticated project.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "name": "my-stream",
+        "partitions": 4,
+        "created_at": "2024-09-10T08:00:00Z"
+      }
+    ],
+    "nextCursor": null,
+    "hasMore": false
+  }
+}
+```
+
+---
+
+### `POST /v1/streams`
+
+Create a new stream within the authenticated project.
+
+<ParamField body="name" type="string" required>
+  A unique name for the stream within the project. Lowercase alphanumeric characters and hyphens only. Maximum 64 characters.
+</ParamField>
+
+<ParamField body="partitions" type="integer">
+  Number of partitions to create for parallel throughput. Defaults to `1`. Maximum is `64` on Enterprise plans.
+</ParamField>
+
+```json
+// Request
+{ "name": "my-stream", "partitions": 4 }
+```
+
+```json
+// Response
+{
+  "ok": true,
+  "data": {
+    "name": "my-stream",
+    "partitions": 4,
+    "created_at": "2024-09-15T12:05:00Z"
+  }
+}
+```
+
+---
+
+### `DELETE /v1/streams/{name}`
+
+Delete a stream and all events it contains. This action is irreversible.
+
+**Path parameter:** `name` — the stream name.
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+---
+
+## Pipelines
+
+Pipelines define real-time processing graphs that transform, filter, or route events from one or more streams to destinations.
+
+### `POST /v1/pipelines`
+
+Create a new pipeline with a processing configuration.
+
+```json
+// Request
+{
+  "name": "click-enrichment",
+  "source_stream": "my-stream",
+  "filters": [{ "type": "user.click" }],
+  "destination": {
+    "type": "webhook",
+    "url": "https://your-service.example.com/events"
+  }
+}
+```
+
+```json
+// Response
+{
+  "ok": true,
+  "data": {
+    "id": "pipe_01HZXXXXX",
+    "name": "click-enrichment",
+    "status": "active",
+    "created_at": "2024-09-15T12:10:00Z"
+  }
+}
+```
+
+---
+
+### `GET /v1/pipelines/{id}/status`
+
+Get the current run status and throughput metrics for a pipeline.
+
+**Path parameter:** `id` — the pipeline ID.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "pipe_01HZXXXXX",
+    "status": "active",
+    "events_processed": 142890,
+    "last_event_at": "2024-09-15T12:30:00Z",
+    "error_count": 0
+  }
+}
+```
+
+---
+
+## AI
+
+NexCore's AI engine exposes endpoints for submitting stream data for automated analysis, anomaly detection, and pattern recognition.
+
+### `POST /v1/ai/analyze`
+
+Submit a batch of event data from a stream for AI-powered analysis. The response includes per-event anomaly scores and any detected behavioral patterns.
+
+```json
+// Request
+{
+  "stream": "my-stream",
+  "from": "2024-09-15T11:00:00Z",
+  "to": "2024-09-15T12:00:00Z",
+  "model": "anomaly-v1"
+}
+```
+
+```json
+// Response
+{
+  "ok": true,
+  "data": {
+    "analysis_id": "anlz_01HZXXXXX",
+    "status": "complete",
+    "anomaly_scores": [
+      { "event_id": "evt_01HZXXXXX", "score": 0.92, "flagged": true },
+      { "event_id": "evt_01HZYYYYY", "score": 0.11, "flagged": false }
+    ],
+    "patterns_detected": ["spike_at_11:45", "drop_at_11:52"],
+    "completed_at": "2024-09-15T12:00:05Z"
+  }
+}
+```
+
+---
+
+## Metrics
+
+### `GET /v1/metrics`
+
+Retrieve aggregated platform metrics for the authenticated project, including event throughput, pipeline health, and storage utilization.
+
+```json
+// Query parameters: ?from=2024-09-15T00:00:00Z&to=2024-09-15T23:59:59Z&granularity=1h
+
+{
+  "ok": true,
+  "data": {
+    "period": {
+      "from": "2024-09-15T00:00:00Z",
+      "to": "2024-09-15T23:59:59Z"
+    },
+    "events_ingested": 4820034,
+    "events_per_second_peak": 3410,
+    "storage_used_gb": 12.4,
+    "active_pipelines": 5,
+    "pipeline_errors": 2
+  }
+}
+```

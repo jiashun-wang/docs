@@ -1,0 +1,136 @@
+---
+title: "NexCore REST API Overview and Base URL"
+sidebarTitle: "Overview"
+description: "Explore the NexCore REST API: base URL, versioning, request and response formats, pagination, and supported HTTP methods."
+---
+
+The NexCore REST API gives you programmatic access to every capability on the platform — create and manage projects, emit and query real-time events, configure streams and pipelines, trigger AI analysis, and retrieve platform metrics. All interactions follow standard HTTP conventions, return JSON, and are designed to be predictable and easy to integrate with any language or toolchain.
+
+## Base URL
+
+Every API request is made against the following base URL:
+
+```
+https://api.nexcore.io/v1
+```
+
+All paths in this reference are relative to this base URL. For example, `GET /v1/projects` resolves to `https://api.nexcore.io/v1/projects`.
+
+## API Versioning
+
+NexCore versions its API through the URL path. The current stable version is **v1**, which is the default for all production integrations.
+
+- **v1** — Stable, fully supported, recommended for all production use.
+- **v2** — Currently in public beta. You can opt in by replacing `/v1/` with `/v2/` in your request paths. Breaking changes will not be introduced to v2 without bumping to v3.
+
+When a new major version is released, the previous version enters a deprecation window of at least 12 months before being retired. You will receive advance notice via email and in the developer dashboard.
+
+Breaking changes (removed fields, changed behavior, new required parameters) always result in a new version. Non-breaking additions — new optional fields, new endpoints — may be introduced within an existing version.
+
+## Request Format
+
+All request bodies must be JSON. Include the following headers with every write request:
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+| `Authorization` | `Bearer <your_api_key>` |
+
+Read requests (GET, DELETE with no body) require only the `Authorization` header.
+
+## Response Format
+
+Every response from the NexCore API uses a consistent envelope structure.
+
+**Success response:**
+
+```json
+{
+  "ok": true,
+  "data": { },
+  "requestId": "req_01HZXXXXX"
+}
+```
+
+The `data` field contains the resource or collection returned by the endpoint. The `requestId` is a unique identifier for the request — keep it handy when contacting support.
+
+**Error response:**
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "INVALID_PARAM",
+    "message": "Field 'stream' is required.",
+    "details": {}
+  }
+}
+```
+
+The `error.code` field is a machine-readable string you can use in your application logic to handle specific error cases. See the [Errors reference](/api/errors) for the full list of codes.
+
+## Pagination
+
+Endpoints that return collections use **cursor-based pagination**. This approach is stable even when new records are inserted between pages.
+
+**Request parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `limit` | integer | Number of results to return. Maximum is `100`. Defaults to `20`. |
+| `cursor` | string | Opaque cursor value from the previous response's `nextCursor`. Omit on the first request. |
+
+**Response structure:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [ ],
+    "nextCursor": "cur_01HZXXXXX",
+    "hasMore": true
+  }
+}
+```
+
+When `hasMore` is `false`, you have reached the end of the collection. When `nextCursor` is `null`, no further pages exist.
+
+## Date and Time
+
+All timestamps in request and response bodies are formatted as **ISO 8601 strings in UTC**, for example:
+
+```
+2024-09-15T12:00:00Z
+```
+
+When filtering by time range (e.g., querying historical events), pass ISO 8601 strings for `from` and `to` parameters. The API rejects timestamps in non-UTC formats.
+
+## HTTP Methods Used
+
+NexCore follows RESTful conventions for HTTP methods:
+
+| Method | Usage |
+|---|---|
+| `GET` | Retrieve a resource or collection. Never modifies state. |
+| `POST` | Create a new resource or trigger an action. |
+| `PATCH` | Partially update an existing resource. Only include fields you want to change. |
+| `DELETE` | Permanently remove a resource. Irreversible. |
+
+---
+
+## Explore the API
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Learn how to generate API keys and authenticate every request with a Bearer token.
+  </Card>
+  <Card title="Endpoints" icon="brackets-curly" href="/api/endpoints">
+    Browse all available endpoints for projects, events, streams, pipelines, and AI.
+  </Card>
+  <Card title="Rate Limits" icon="gauge-high" href="/api/rate-limits">
+    Understand plan-based rate limits and implement retry logic to stay resilient.
+  </Card>
+  <Card title="Errors" icon="circle-exclamation" href="/api/errors">
+    Reference every error code with descriptions and recommended resolution steps.
+  </Card>
+</CardGroup>

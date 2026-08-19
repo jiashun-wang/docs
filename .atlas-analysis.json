@@ -1,13 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
+  "projectType": "general",
+  "projectName": "NexCore",
+  "projectDescription": "A next-generation technology platform delivering intelligent infrastructure, real-time data processing, and developer-first APIs for building the future.",
   "theme": "luma",
-  "name": "NexCore",
-  "colors": {
-    "primary": "#ef7025",
-    "light": "#eec9bc",
-    "dark": "#4fa1ab"
-  },
-  "favicon": "/favicon.svg",
+  "primaryColor": "#ef7025",
+  "lightColor": "#eec9bc",
+  "darkColor": "#4fa1ab",
   "navigation": {
     "tabs": [
       {
@@ -87,17 +85,26 @@
       }
     ]
   },
-  "navbar": {
-    "primary": {
-      "type": "button",
-      "label": "Get Started",
-      "href": "/quickstart"
-    }
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/nexcore",
-      "github": "https://github.com/nexcore"
-    }
-  }
+  "keyFeatures": [
+    "Real-time intelligent data processing engine",
+    "AI-powered analytics and anomaly detection",
+    "Developer-first REST & WebSocket APIs",
+    "Zero-latency distributed event streaming",
+    "End-to-end encrypted data pipelines",
+    "One-click cloud deployment with auto-scaling",
+    "Plugin ecosystem and custom extension support",
+    "Comprehensive observability and monitoring dashboard"
+  ],
+  "publicApiSurface": [
+    "POST /v1/events — Emit an event to the stream",
+    "GET /v1/projects — List all projects",
+    "POST /v1/projects — Create a new project",
+    "GET /v1/projects/{id} — Retrieve a project",
+    "DELETE /v1/projects/{id} — Delete a project",
+    "POST /v1/pipelines — Create a data pipeline",
+    "GET /v1/pipelines/{id}/status — Get pipeline status",
+    "POST /v1/ai/analyze — Submit data for AI analysis",
+    "GET /v1/metrics — Retrieve platform metrics",
+    "WebSocket /v1/stream — Subscribe to real-time event stream"
+  ]
 }

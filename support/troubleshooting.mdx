@@ -1,0 +1,239 @@
+---
+title: "Troubleshoot Common NexCore Errors and Issues"
+sidebarTitle: "Troubleshooting"
+description: "Diagnose and fix common NexCore errors including authentication failures, connection issues, event delivery problems, pipeline errors, and rate limiting."
+---
+
+This guide covers the most common issues customers encounter and how to resolve them. Each section groups related problems together so you can quickly find the error you're seeing. If the steps here don't resolve your issue, see the note at the bottom of this page about contacting support.
+
+## Authentication Errors
+
+<AccordionGroup>
+
+<Accordion title="401 Invalid API Key">
+  **Symptom**: Every request returns `401 Unauthorized` with the message `"Invalid API key"`.
+
+  **Causes and fixes**:
+
+  1. **Key was copied with extra whitespace** — Paste your key into a text editor to verify it has no leading or trailing spaces or newline characters before using it in code or environment variables.
+  2. **Key belongs to a different project** — API keys are scoped to a single project. Confirm you're using the key for the project you're targeting. Check under **Settings → API Keys**.
+  3. **Key was rotated or deleted** — If someone rotated the key from the dashboard, the old key is immediately invalid. Generate a new key and update all services using the old one.
+  4. **Wrong Authorization header format** — NexCore expects `Authorization: Bearer <key>`. Using `Authorization: Token <key>` or `Authorization: <key>` without the `Bearer` prefix returns a 401.
+
+  ```bash
+  # Correct format
+  curl https://api.nexcore.io/v1/streams \
+    -H "Authorization: Bearer nx_live_xxxxxxxxxxxx"
+  ```
+</Accordion>
+
+<Accordion title="403 Insufficient Scope">
+  **Symptom**: Requests return `403 Forbidden` with the message `"Insufficient scope"` or `"This key does not have permission to perform this action"`.
+
+  **Cause**: The API key you're using was created with restricted scopes. For example, a key created with `streams:read` cannot publish events (`streams:write`) or manage pipelines.
+
+  **Fix**: Create a new API key with the required scopes under **Settings → API Keys → New Key**. Available scopes include:
+  - `streams:read` / `streams:write`
+  - `pipelines:read` / `pipelines:write`
+  - `metrics:read`
+  - `admin` (all permissions — use sparingly)
+
+  Avoid using `admin`-scoped keys in application code. Create keys with the minimum necessary scopes and rotate them regularly.
+</Accordion>
+
+<Accordion title="API Key Expired">
+  **Symptom**: A key that was working stops returning results and now returns `401 Unauthorized` with `"API key expired"`.
+
+  **Cause**: API keys can be created with an expiration date under **Settings → API Keys → New Key → Expiry**. When the expiry date passes, the key becomes invalid.
+
+  **Fix**: Check the expiration date of the key in the dashboard. Generate a new key and update your services. If you want to avoid expiration-related outages in future, create keys without an expiry or set up automated key rotation using the [Key Management API](https://docs.nexcore.io/api-reference/keys).
+</Accordion>
+
+</AccordionGroup>
+
+## Connection Issues
+
+<AccordionGroup>
+
+<Accordion title="WebSocket Disconnects Unexpectedly">
+  **Symptom**: Your real-time consumer connects successfully but drops the connection after a period of inactivity or under load.
+
+  **Causes and fixes**:
+
+  1. **Missing heartbeat / keepalive** — NexCore closes WebSocket connections idle for more than 60 seconds. Enable the SDK's built-in heartbeat:
+     ```typescript
+     const consumer = client.stream.consume('my-stream', {
+       consumerGroup: 'workers',
+       keepAlive: true,          // sends a ping every 30 seconds
+       reconnect: { maxAttempts: 10, backoffMs: 1000 }
+     });
+     ```
+  2. **Load balancer or proxy timeout** — If you're routing traffic through a proxy or AWS ALB, the default idle timeout (60 seconds) will terminate inactive WebSocket connections. Increase the idle timeout to at least 5 minutes, or ensure heartbeats are enabled.
+  3. **Network instability** — Enable automatic reconnection in the SDK (`reconnect.maxAttempts`). The SDK uses exponential backoff and resumes from the last acknowledged offset automatically.
+</Accordion>
+
+<Accordion title="Request Timeout Errors">
+  **Symptom**: HTTP requests to the NexCore API time out after several seconds, or the SDK throws a `TimeoutError`.
+
+  **Causes and fixes**:
+
+  1. **High payload size** — Requests with very large batch payloads (close to the 5 MB batch limit) take longer to process. Split large batches into smaller chunks of 500–1,000 events.
+  2. **Regional endpoint mismatch** — If your infrastructure is in `ap-southeast-1` but you're hitting the default `api.nexcore.io` endpoint (which routes to `us-east-1`), round-trip latency adds up. Use the regional endpoint: `api.ap-southeast-1.nexcore.io`.
+  3. **Platform incident** — Check the [NexCore Status Page](https://status.nexcore.io) for any ongoing incidents that could affect API response times.
+</Accordion>
+
+<Accordion title="DNS Resolution Failures">
+  **Symptom**: Your application cannot connect to `api.nexcore.io` and logs a DNS resolution error such as `ENOTFOUND api.nexcore.io`.
+
+  **Causes and fixes**:
+
+  1. **Restrictive egress firewall** — Some corporate or cloud environments block outbound DNS queries or TCP connections to non-whitelisted domains. Whitelist `api.nexcore.io` and `*.nexcore.io` (for regional endpoints) on port 443.
+  2. **DNS caching** — If you recently updated environment variables after a service restart, an old cached DNS entry may be in use. Flush the DNS cache or restart the service.
+  3. **Split-horizon DNS** — In some VPC configurations, internal DNS resolvers return different results than public resolvers. Verify that `api.nexcore.io` resolves to the correct IP from within your environment: `dig api.nexcore.io`.
+</Accordion>
+
+</AccordionGroup>
+
+## Event Delivery Problems
+
+<AccordionGroup>
+
+<Accordion title="Events Are Not Appearing in the Stream">
+  **Symptom**: Your producer is returning 200 responses but events are not visible in the dashboard or to consumers.
+
+  **Causes and fixes**:
+
+  1. **Wrong stream name** — Double-check that the stream name in your `POST /v1/events` call exactly matches the stream name in the dashboard (case-sensitive).
+  2. **Events are in a different project** — If you have multiple projects, verify the API key you're using belongs to the project you're checking in the dashboard.
+  3. **Dashboard filter active** — The dashboard stream view may have a time filter excluding your events. Reset the time range to **Last 15 minutes** and check again.
+  4. **Ingest validation failure** — If you have a schema registered on the stream, invalid events are rejected at ingest without appearing in the stream. Check the **Ingest Errors** panel in the dashboard for schema validation errors.
+</Accordion>
+
+<Accordion title="Webhook Delivery Failures">
+  **Symptom**: Your pipeline has a webhook step configured but the target endpoint is not receiving events.
+
+  **Causes and fixes**:
+
+  1. **Endpoint not publicly reachable** — NexCore must be able to reach your webhook URL over the public internet. `localhost` or private IP addresses will not work. Use a tool like [ngrok](https://ngrok.com) for local testing.
+  2. **Endpoint returning non-2xx status** — NexCore treats any non-`2xx` response as a delivery failure and retries with exponential backoff (up to 5 retries over 10 minutes). Check your server logs for the inbound requests and error responses.
+  3. **TLS certificate issues** — NexCore validates the SSL certificate of your webhook endpoint. Self-signed certificates are rejected. Use a certificate from a trusted CA.
+  4. **Timeout** — Your endpoint must respond within 5 seconds. Long-running processing should be deferred: accept the webhook, return `200`, and process asynchronously.
+</Accordion>
+
+<Accordion title="Event Ordering Issues">
+  **Symptom**: Events are arriving at your consumer out of the order they were produced.
+
+  **Cause**: NexCore guarantees ordering within a single partition, but not across partitions. If your stream has multiple partitions and you're not using a partition key, events from different partitions may be interleaved at the consumer.
+
+  **Fix**: Use a partition key to ensure all events for a given entity land on the same partition:
+
+  ```typescript
+  await client.stream.emit('orders', {
+    payload: { orderId: '123', status: 'shipped' },
+    partitionKey: '123'   // all events for order 123 are ordered
+  });
+  ```
+
+  If global ordering across all events is required, use a single-partition stream (`partitions: 1`). Note that this limits your consumer concurrency to one.
+</Accordion>
+
+</AccordionGroup>
+
+## Pipeline Errors
+
+<AccordionGroup>
+
+<Accordion title="Pipeline Stuck in Error State">
+  **Symptom**: The pipeline dashboard shows status `ERROR` and events have stopped being processed.
+
+  **Causes and fixes**:
+
+  1. **Unhandled exception in a plugin** — Open **Pipelines → [Pipeline Name] → Logs** to see the exception message and stack trace from the failing step. Fix the plugin code, deploy the new version, and redeploy the pipeline.
+  2. **Downstream connector unavailable** — If a connector step (e.g., Snowflake, S3) cannot connect to the target, the pipeline halts to avoid data loss. Verify the destination credentials and network connectivity, then click **Resume** on the pipeline.
+  3. **Schema mismatch** — A change in the upstream event schema that violates a downstream schema expectation can halt a pipeline. Review the pipeline step configuration and update the schema mapping.
+
+  After fixing the root cause, resume the pipeline from the dashboard. NexCore will reprocess events from the point where processing stopped, so no events are lost.
+</Accordion>
+
+<Accordion title="Dead-Letter Queue Is Full">
+  **Symptom**: You receive an alert that your stream's dead-letter queue (DLQ) is at capacity, and new failed events cannot be routed to it.
+
+  **Fix**:
+
+  1. **Investigate the root cause** — Open the DLQ stream in the dashboard and inspect a sample of failed events. The `_nexcore_error` metadata field on each event contains the failure reason. Fix the underlying issue causing events to fail.
+  2. **Replay or drain the DLQ** — After fixing the cause, replay DLQ events through the pipeline:
+     ```bash
+     nexcore dlq replay --stream my-stream --pipeline my-pipeline
+     ```
+  3. **Increase DLQ capacity** — If large bursts of failures are expected (e.g., during a deploy), increase the DLQ retention limit under **Streams → [DLQ Stream Name] → Settings**.
+</Accordion>
+
+<Accordion title="Transform Plugin Throwing Exceptions">
+  **Symptom**: The pipeline logs show repeated exceptions from a custom plugin step, and affected events are being routed to the DLQ.
+
+  **Debugging steps**:
+
+  1. Check the error message in **Pipelines → [Pipeline Name] → Logs → Plugin Errors**.
+  2. Reproduce the error locally using `nexcore dev --plugin ./plugin.ts --fixture ./failing-event.json`. The failing event payload can be copied from the DLQ.
+  3. Common causes:
+     - Accessing a field that doesn't exist on all events (use optional chaining: `event.payload?.field ?? 'default'`)
+     - Exceeding the 500ms execution time limit (profile and optimize your transform logic)
+     - Calling an external HTTP endpoint that is down (add a try/catch and return the original event as a fallback)
+  4. Fix, test locally, deploy, and promote the new plugin version.
+</Accordion>
+
+</AccordionGroup>
+
+## Rate Limit Errors
+
+<AccordionGroup>
+
+<Accordion title="429 Too Many Requests">
+  **Symptom**: Your producer is receiving `429 Too Many Requests` responses and events are being rejected.
+
+  **Reading the Retry-After header**
+
+  Every `429` response from NexCore includes a `Retry-After` header indicating how many seconds to wait before retrying:
+
+  ```
+  HTTP/1.1 429 Too Many Requests
+  Retry-After: 3
+  X-RateLimit-Limit: 5000
+  X-RateLimit-Remaining: 0
+  X-RateLimit-Reset: 1725148800
+  ```
+
+  **Implementing exponential backoff**
+
+  Do not retry immediately on a 429 — that will make the situation worse. Use the `Retry-After` value as the minimum wait, then add jitter:
+
+  ```typescript
+  async function emitWithBackoff(event: object, maxRetries = 5) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      const res = await client.stream.emit('my-stream', event);
+      if (res.status !== 429) return res;
+
+      const retryAfter = parseInt(res.headers['retry-after'] ?? '1', 10);
+      const jitter = Math.random() * 1000;
+      await sleep((retryAfter * 1000) + jitter);
+      attempt++;
+    }
+    throw new Error('Max retries exceeded');
+  }
+  ```
+
+  **Long-term fixes**
+
+  - **Batch events** — Use `POST /v1/events/batch` to send up to 1,000 events in a single request, which reduces the request rate dramatically.
+  - **Upgrade your plan** — If you're consistently hitting limits, upgrade to a higher plan or contact NexCore sales for an Enterprise quotation.
+  - **Distribute producers** — Spread event production across multiple processes or services so that no single producer generates bursts exceeding the rate limit.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+<Note>
+  When contacting NexCore support, always include your **Project ID** (found under **Settings → General → Project ID**) and the **request trace ID** from the `X-NexCore-Trace-Id` response header. These two identifiers allow the support team to locate your exact requests in the platform logs within seconds, significantly speeding up diagnosis and resolution. You can reach support at [support@nexcore.io](mailto:support@nexcore.io) or via your dedicated Slack channel if you're on an Enterprise plan.
+</Note>

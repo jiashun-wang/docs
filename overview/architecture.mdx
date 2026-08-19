@@ -1,0 +1,111 @@
+---
+title: "NexCore Platform Architecture and How It Works"
+sidebarTitle: "Architecture"
+description: "Explore NexCore's layered platform architecture — from event ingestion and AI-powered processing to multi-channel delivery — and see how data flows end to end."
+---
+
+When you publish an event to NexCore, it travels through a carefully designed series of layers before it reaches your downstream consumers. Each layer is independently scalable, observable, and configurable — you can customize how events are enriched, filtered, and delivered without ever thinking about the infrastructure that powers it. This page walks you through those layers, explains how your projects and workspaces map onto the platform, and shows you the full data flow from client to consumer.
+
+## The Three Layers
+
+NexCore's platform is organized into three distinct functional layers. Understanding them helps you make better decisions about where to apply transformations, where to enforce access controls, and where to optimize for latency or throughput.
+
+### Ingestion Layer
+
+The ingestion layer is the entry point for all data in NexCore. When your application calls the Events API or uses an SDK to publish an event, the ingestion layer receives, validates, and durably stores the payload before acknowledging the write.
+
+Key responsibilities of the ingestion layer include:
+
+- **Schema validation** — Optionally enforce a JSON Schema on incoming events so that malformed payloads are rejected at the boundary rather than propagating downstream.
+- **Authentication and rate limiting** — Every inbound request is authenticated against an API key scoped to your project. Rate limits are enforced here to protect shared infrastructure.
+- **Durable buffering** — Events are written to a replicated, append-only log before the response is returned to the caller, guaranteeing at-least-once delivery even if a downstream processor is temporarily unavailable.
+
+### Processing Layer
+
+Once an event is durably stored, the processing layer takes over. This is where the intelligence of NexCore lives. The processing layer reads events from the ingestion buffer and routes them through the pipelines you've configured for each stream.
+
+A pipeline is a sequence of processing steps that can include:
+
+- **Transformations** — Reshape, enrich, or redact event fields using built-in operators or custom JavaScript functions running in a sandboxed V8 runtime.
+- **Filters** — Drop events that don't match a condition (e.g., only process events where `event.type === "payment.completed"`).
+- **AI Engine** — Route events through NexCore's AI Engine to apply real-time classification, anomaly scoring, embedding generation, or your own deployed model endpoints.
+- **Aggregations** — Compute rolling windows, counts, and sums over a time window without needing an external database.
+
+### Delivery Layer
+
+After the processing layer has transformed and enriched an event, the delivery layer fans it out to your configured destinations. You choose how and where NexCore delivers processed events:
+
+- **Webhooks** — NexCore POSTs the processed event payload to one or more HTTPS endpoints you control. Delivery includes automatic retries with exponential backoff.
+- **REST API and SDKs** — Your application can pull events via the Events API or consume them in real time using the TypeScript, Python, or Go SDKs.
+- **WebSocket connections** — Subscribe to a stream over a persistent WebSocket connection for browser or mobile clients that need live event feeds without polling.
+- **Connectors** — Push events directly into external systems like PostgreSQL, Snowflake, S3, Slack, or PagerDuty using NexCore's built-in connector library.
+
+<Info>
+  NexCore's three-layer architecture is specifically designed to keep end-to-end latency under 100ms for the 99th percentile of events under normal load. The ingestion and processing layers run in the same regional data center, eliminating cross-region hops for the hot path. Delivery to external webhooks and connectors happens asynchronously, so slow downstream consumers never create backpressure on your event producers.
+</Info>
+
+## Projects & Workspaces
+
+NexCore uses two organizational primitives to help you isolate configuration, data, and team access.
+
+**A Workspace** is the top-level organizational unit tied to your NexCore account. Your workspace holds your billing information, team members, and one or more projects. Think of it as your company's or team's home within NexCore.
+
+**A Project** is a fully isolated environment within a workspace. Each project has its own:
+
+- Streams and event history
+- Pipelines and connector configurations
+- API keys and access controls
+- Usage quotas and retention settings
+
+You might create separate projects for `production`, `staging`, and `development` environments, or you might create a project per product line if you're running multiple independent services. Events, pipelines, and API keys in one project are completely invisible to other projects — there's no accidental cross-contamination of data.
+
+## Data Flow Diagram
+
+The following diagram shows the complete journey of an event from your application through NexCore to its final destination:
+
+```text
+Your Application
+      │
+      │  POST /v1/events  (HTTPS + API Key)
+      ▼
+┌─────────────────────┐
+│   Ingestion API     │  ← Validates schema, authenticates, rate-limits
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│    Event Stream     │  ← Durable, replicated append-only log
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Pipeline Processor │  ← Transforms, filters, aggregates
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│     AI Engine       │  ← Classification, anomaly detection, embeddings
+└──────────┬──────────┘
+           │
+     ┌─────┴──────┬──────────────┐
+     ▼            ▼              ▼
+Webhooks     Dashboard       SDK / API
+(HTTPS POST) (Live UI)   (WebSocket / REST)
+```
+
+Every arrow in this diagram represents a configurable, observable handoff. You can inspect event counts, processing latency, and delivery success rates at each stage from the NexCore dashboard or via the Metrics API.
+
+## Regional Infrastructure
+
+NexCore is deployed across multiple geographic regions to help you meet latency goals and data residency requirements. When you create a project, you select a home region for that project's data:
+
+| Region | Location | Available On |
+|---|---|---|
+| `us-east-1` | Northern Virginia, USA | All plans |
+| `eu-west-1` | Dublin, Ireland | All plans |
+| `ap-southeast-1` | Singapore | Growth and Enterprise plans |
+| `us-west-2` | Oregon, USA | Growth and Enterprise plans |
+
+Within a region, NexCore runs across multiple availability zones. Ingestion and processing infrastructure is replicated so that a single AZ failure does not cause data loss or availability degradation.
+
+**Data residency** guarantees mean that events published to a project in `eu-west-1` are stored, processed, and delivered entirely within the EU — no data transits to or is stored in other regions. Enterprise plans include contractual data residency commitments suitable for GDPR and other regulatory frameworks.

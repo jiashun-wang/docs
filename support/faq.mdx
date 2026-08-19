@@ -1,0 +1,109 @@
+---
+title: "Frequently Asked Questions About NexCore"
+sidebarTitle: "FAQ"
+description: "Answers to the most common questions about NexCore pricing, event limits, data export, integrations, GDPR compliance, and platform concepts."
+---
+
+Find answers to the most common questions about NexCore's features, pricing, and platform. If your question isn't covered here, visit the [Troubleshooting guide](/support/troubleshooting) or contact the support team directly.
+
+<AccordionGroup>
+
+<Accordion title="What is included in the free tier?">
+  The NexCore free tier gives you everything you need to build and test a real-time event pipeline at no cost. It includes:
+
+  - Up to **500 events per second** ingestion
+  - **3 streams** and **2 pipelines**
+  - **24-hour event retention**
+  - Full access to the dashboard, Metrics API, and Alerts
+  - Community support via the NexCore Discord
+
+  The free tier is not rate-limited by time — it stays available for as long as you need it. You only need to upgrade when you outgrow the capacity or retention limits.
+</Accordion>
+
+<Accordion title="How is pricing calculated — per event or per API call?">
+  NexCore pricing is based on **events ingested**, not API calls. Every event you write to a stream via `POST /v1/events` counts as one billable event, regardless of payload size (up to the 1 MB per-event limit) or how many pipelines process it.
+
+  Reading events — via consumers, the Metrics API, or any other read endpoint — does not count toward your event quota. This means you can fan out events to multiple consumer groups or pipelines without multiplying your bill.
+
+  API calls for management operations (creating streams, configuring pipelines, fetching metrics) are unlimited and not charged separately.
+</Accordion>
+
+<Accordion title="What happens when I exceed my event limit?">
+  NexCore monitors your usage continuously and sends an email warning when you reach **80% of your plan's events-per-second limit**. If you sustain throughput above the limit:
+
+  - **Free and Pro plans**: Ingestion is throttled. Producers receive `429 Too Many Requests` responses until throughput drops below the limit. Events are not silently dropped.
+  - **Growth plan**: You receive a grace period of 15 minutes at up to 2× your limit, then throttling begins. Overages are billed at the per-event overage rate listed on your plan.
+  - **Enterprise plans**: Custom limits apply; hard throttling is typically disabled in favor of contractual usage reviews.
+
+  You can upgrade your plan at any time from **Settings → Billing**, and the new limit takes effect immediately.
+</Accordion>
+
+<Accordion title="Can I export my data out of NexCore?">
+  Yes. You have several options for exporting your data:
+
+  - **Stream replay** — consumers can read historical events from any point within the retention window using the `startAt` parameter.
+  - **Metrics API** — export aggregated metrics as JSON for any time window within the 90-day retention period.
+  - **Pipeline connectors** — configure a Connector Plugin or a native connector step to continuously forward events to an external destination such as Amazon S3, Google Cloud Storage, Snowflake, or BigQuery.
+  - **Bulk export** — request a one-time bulk export of raw events from **Settings → Data Export**. Exports are packaged as gzipped NDJSON and delivered to an S3-compatible URL within 24 hours.
+
+  NexCore does not lock you in. You own your data and can export or delete it at any time.
+</Accordion>
+
+<Accordion title="Does NexCore support custom event schemas?">
+  Yes. You can register a JSON Schema or Avro schema for any stream under **Streams → [Stream Name] → Schema Registry**. Once a schema is registered, NexCore validates every incoming event against it at ingest time.
+
+  Events that fail schema validation are rejected with a `400 Bad Request` response (the event is never stored), or routed to a dead-letter queue if you configure `schemaValidationMode: 'dlq'` on the stream.
+
+  Schema evolution is supported: you can publish new schema versions and configure compatibility rules (`BACKWARD`, `FORWARD`, or `FULL`) to control which versions producers and consumers may use simultaneously.
+</Accordion>
+
+<Accordion title="How do I delete all events from a stream?">
+  You can truncate a stream — deleting all stored events while keeping the stream configuration intact — using the API:
+
+  ```bash
+  curl -X POST https://api.nexcore.io/v1/streams/my-stream/truncate \
+    -H "Authorization: Bearer $NEXCORE_API_KEY"
+  ```
+
+  Or from the dashboard: **Streams → [Stream Name] → Settings → Danger Zone → Truncate Stream**.
+
+  Truncation is permanent and irreversible. Consumer group offsets are reset to the current head after truncation, so existing consumers resume from the new start. If you want to delete the stream entirely (including its configuration), use `DELETE /v1/streams/my-stream`.
+</Accordion>
+
+<Accordion title="Is NexCore GDPR compliant?">
+  Yes. NexCore is fully GDPR compliant. Key compliance capabilities include:
+
+  - **Data Processing Agreement (DPA)** — available for signature from **Settings → Legal → DPA**. Required for EU-based customers.
+  - **Data residency** — choose to store your data in the EU (`eu-west-1`) at project creation time to ensure personal data does not leave the European Economic Area.
+  - **Right to erasure** — use the Event Deletion API to delete events matching a specific user ID or attribute within 30 days, fulfilling erasure requests.
+  - **Audit logs** — all administrative actions are logged with timestamp, actor, and IP address and retained for 1 year.
+  - **Encryption** — all data is encrypted at rest (AES-256) and in transit (TLS 1.3).
+
+  NexCore is also SOC 2 Type II certified. You can request the latest audit report and security documentation from your account manager.
+</Accordion>
+
+<Accordion title="What's the difference between a Pipeline and a Stream?">
+  A **Stream** is a durable, ordered log of events. Producers write events to a stream, and consumers read them. Streams are the storage and transport layer — they hold your events and replay them to any number of consumers independently.
+
+  A **Pipeline** is a processing graph attached to a stream. It defines a sequence of steps — filters, transforms, connector outputs, validators — that NexCore applies to every event flowing through the stream. Pipelines are stateless from your application's perspective: your producers write to the stream and the pipeline executes automatically on every event.
+
+  Think of it this way: a stream is the **data channel**, and a pipeline is the **processing logic** applied to data moving through that channel. You can have multiple pipelines on the same stream for different purposes (analytics, archival, alerting) without any interference.
+</Accordion>
+
+<Accordion title="Can multiple applications write to the same stream?">
+  Yes. Multiple producers — different services, microservices, or even different programming languages — can write to the same stream concurrently. NexCore handles concurrent writes safely; there is no locking or coordination required on your end.
+
+  Each event is assigned a monotonically increasing sequence number at ingest time, which preserves a total ordering across all producers. If you need to preserve ordering within a specific entity (e.g., all events for a given order ID), use a **partition key** equal to that entity ID. Events sharing a partition key are always routed to the same partition and processed in order.
+</Accordion>
+
+<Accordion title="How do I contact support?">
+  NexCore offers several support channels depending on your plan:
+
+  - **Free tier**: Community support via the [NexCore Discord](https://discord.nexcore.io) and the public documentation.
+  - **Pro and Growth**: Email support at [support@nexcore.io](mailto:support@nexcore.io) with a 1 business day response SLA.
+  - **Enterprise**: Dedicated Slack channel with your NexCore solutions engineer, 4-hour response SLA for critical issues, and optional 24/7 on-call support.
+
+  When contacting support, please include your **Project ID** (found under **Settings → General**) and any relevant **request trace IDs** (returned in the `X-NexCore-Trace-Id` response header). This allows the support team to locate your specific requests in the platform logs and dramatically speeds up resolution.
+</Accordion>
+
+</AccordionGroup>

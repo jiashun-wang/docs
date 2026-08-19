@@ -1,0 +1,153 @@
+---
+title: "Security and Compliance in NexCore"
+sidebarTitle: "Security"
+description: "NexCore protects your data with TLS 1.3 encryption, AES-256 at rest, granular RBAC, audit logs, and SOC 2 Type II and GDPR compliance."
+---
+
+NexCore is built with security as a first-class concern — from encryption at rest to granular access controls, every layer of the platform is designed to protect your data and give your team the visibility it needs to operate confidently. Whether you're a startup handling user events or an enterprise processing sensitive financial and health data, NexCore gives you the controls, certifications, and audit capabilities required to meet your compliance obligations.
+
+## Encryption
+
+All data flowing through NexCore is encrypted both in transit and at rest. No configuration is required — encryption is always on.
+
+**In transit:** NexCore enforces **TLS 1.3** for all API connections, WebSocket streams, and dashboard traffic. Older TLS versions (1.0, 1.1) and insecure cipher suites are explicitly rejected. Certificate pinning is supported for mobile and embedded SDK clients.
+
+**At rest:** Event data, pipeline configurations, audit logs, and all other persistent state are encrypted using **AES-256-GCM**. Encryption is applied at the storage layer before data is written to disk, so even raw storage volumes contain no plaintext.
+
+**Key management options:**
+
+| Option | Description | Availability |
+|---|---|---|
+| **NexCore-managed keys** | NexCore generates and rotates encryption keys automatically. Keys are stored in a dedicated HSM-backed key management service. | All plans |
+| **Customer-managed keys (CMK)** | Bring your own key stored in AWS KMS, Google Cloud KMS, or Azure Key Vault. NexCore requests a data encryption key per write operation and never stores your root key. | Enterprise plan |
+| **Key rotation** | NexCore-managed keys are rotated automatically every 365 days. CMK rotation is triggered by a rotation event in your KMS and applied to new writes immediately. | All plans |
+
+## Access Control (RBAC)
+
+NexCore uses role-based access control (RBAC) to govern what each team member can see and do within your organization. Roles are assigned per-user and can be scoped to the entire organization or to individual projects.
+
+| Role | Permissions |
+|---|---|
+| **Owner** | Full access to all resources, billing, organization settings, member management, and security configuration. Only Owners can delete the organization or transfer ownership. |
+| **Admin** | Full access to streams, pipelines, API keys, and integrations. Can invite and remove members and assign roles up to Admin. Cannot access billing or delete the organization. |
+| **Developer** | Can create and manage streams, pipelines, and their own API keys. Cannot manage other team members, billing, or organization-level security settings. |
+| **Viewer** | Read-only access to streams, pipeline configurations, metrics, and audit logs. Cannot create, modify, or delete any resources. Ideal for stakeholders and on-call responders. |
+
+You can also define **custom roles** with fine-grained permission sets on the Enterprise plan, combining any subset of individual permissions across resources. Assign roles from **Settings → Team → Members**.
+
+## API Key Security
+
+API keys are the primary authentication mechanism for the NexCore API and SDKs. NexCore gives you fine-grained control over what each key can do and where it can be used.
+
+**Scoped keys:** Every API key has an associated scope that limits which resources and operations it may access. For example, you can issue a key that can only publish events to a single stream — nothing else.
+
+```json
+{
+  "name": "payments-ingest-only",
+  "scopes": ["streams:publish"],
+  "resources": ["stream:payments"],
+  "expiresAt": "2025-06-01T00:00:00Z",
+  "allowedIPs": ["203.0.113.42/32", "198.51.100.0/24"]
+}
+```
+
+**Key expiry:** Set an absolute expiry date on any key. NexCore rejects requests from expired keys with a `401 Unauthorized` response and emits an audit log entry. Short-lived keys are strongly recommended for CI/CD pipelines and temporary access grants.
+
+**IP allowlisting:** Restrict a key to requests originating from specific IPv4 or IPv6 CIDR ranges. Requests from outside the allowlist are rejected before they reach the NexCore processing layer, providing a defense-in-depth layer independent of key secrecy.
+
+**Key rotation:** Rotate any key from the dashboard (**Settings → API Keys → Rotate**) or via the API. During rotation, NexCore supports a configurable overlap window (default: 15 minutes) during which both the old and new keys are valid — allowing you to update secrets in your application without downtime.
+
+<Warning>
+  For production workloads, rotate your API keys at least every **90 days** as a security best practice. Unrotated long-lived keys are a common attack vector if a key is inadvertently exposed in logs, source code, or environment variable dumps. Consider using a secrets manager (AWS Secrets Manager, HashiCorp Vault, etc.) to automate key rotation and distribute the new key to your services automatically.
+</Warning>
+
+## Audit Logs
+
+Every API call, dashboard action, team management change, and security configuration update is recorded in NexCore's immutable audit log. Audit log entries cannot be deleted or modified — even by Owner-level users — providing a tamper-evident record for compliance and forensic purposes.
+
+Each audit log entry includes:
+
+- **Timestamp** (UTC, millisecond precision)
+- **Actor** — the user or API key that performed the action
+- **Action** — what was done (e.g., `stream.created`, `pipeline.activated`, `member.role_changed`)
+- **Resource** — the affected resource identifier
+- **Source IP** — the originating IP address
+- **Result** — success or failure, with error codes for failed operations
+
+**Access audit logs from the dashboard:** Navigate to **Settings → Audit Logs**. Use the date range picker, actor filter, and action type filter to narrow results.
+
+**Access audit logs via the API:**
+
+```bash
+GET /v1/audit-logs?actor=user_01HGX&action=stream.*&from=2024-11-01T00:00:00Z&limit=100
+```
+
+```json
+{
+  "entries": [
+    {
+      "id": "log_01HGXK7P2V3NQ8TMSC4R6FWDEZ",
+      "timestamp": "2024-11-15T09:14:32.041Z",
+      "actor": {
+        "type": "user",
+        "id": "user_01HGX",
+        "email": "alice@example.com"
+      },
+      "action": "stream.created",
+      "resource": {
+        "type": "stream",
+        "id": "stream_payments",
+        "name": "payments"
+      },
+      "sourceIP": "203.0.113.42",
+      "result": "success"
+    }
+  ],
+  "nextCursor": "cur_01HGXM9..."
+}
+```
+
+Audit logs are retained for **365 days** on all plans. Enterprise customers can configure export to Amazon S3, Google Cloud Storage, or a SIEM of their choice for indefinite retention.
+
+## Compliance
+
+NexCore maintains the following compliance certifications and programs:
+
+**SOC 2 Type II:** NexCore undergoes annual SOC 2 Type II audits covering the Security, Availability, and Confidentiality trust service criteria. The audit report covers NexCore's controls for access management, change management, incident response, and data protection.
+
+**GDPR:** NexCore is designed to support GDPR compliance for customers processing personal data of EU residents. Key capabilities include:
+- **Data residency**: Choose to store your event data exclusively in EU regions (Frankfurt, Amsterdam) with no cross-border transfer.
+- **Data deletion**: Purge all events associated with a specific user identifier via the `DELETE /v1/streams/{stream}/events?user_id={id}` endpoint.
+- **DPA**: A Data Processing Agreement is available to all customers and is automatically included in Enterprise contracts.
+
+**HIPAA-eligible regions:** NexCore's US-East-1 and US-West-2 regions are covered by a Business Associate Agreement (BAA) for customers processing Protected Health Information (PHI). The BAA must be executed before storing PHI — contact [security@nexcore.io](mailto:security@nexcore.io) to request one.
+
+<Note>
+  Compliance documentation — including the latest SOC 2 Type II report, penetration test summary, sub-processor list, and DPA — is available to customers under NDA. Contact [security@nexcore.io](mailto:security@nexcore.io) or open a support ticket from the dashboard to request access. Enterprise customers receive direct access to the NexCore Trust Portal, where documentation is always current.
+</Note>
+
+## Network Security
+
+NexCore provides multiple layers of network-level protection to isolate your data and restrict access to your NexCore resources.
+
+**Private endpoints:** Deploy a private NexCore endpoint within your cloud VPC so that all API and streaming traffic stays on your private network and never traverses the public internet. Private endpoints are available for AWS (PrivateLink), Google Cloud (Private Service Connect), and Azure (Private Link).
+
+**VPC peering:** Establish a direct VPC peering connection between your cloud environment and NexCore's dedicated cluster. Peering provides low-latency, high-bandwidth connectivity and ensures your event traffic is logically isolated from other NexCore customers.
+
+**IP allowlisting at the organization level:** In addition to per-key IP restrictions, you can configure an organization-wide IP allowlist that applies to all API traffic regardless of which key is used. Requests from outside the allowlist are blocked at the network edge before reaching NexCore's application layer.
+
+Configure network security settings from **Settings → Security → Network**, or via the Organization API:
+
+```bash
+PATCH /v1/organization/security/network
+```
+
+```json
+{
+  "ipAllowlist": [
+    "203.0.113.0/24",
+    "198.51.100.42/32"
+  ],
+  "enforcePrivateEndpoint": true
+}
+```

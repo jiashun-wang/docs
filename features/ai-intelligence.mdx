@@ -1,0 +1,141 @@
+---
+title: "AI Intelligence: Anomaly Detection and Predictive Analytics"
+sidebarTitle: "AI Intelligence"
+description: "NexCore's built-in AI continuously monitors live event streams for anomalies, delivers predictions, and triggers smart alerts — no model training required."
+---
+
+NexCore's AI engine runs continuously on your live event streams — no model training, no data exports, and no separate ML infrastructure required. The moment you enable AI Intelligence on a stream, NexCore begins building a statistical baseline from your event history and surfaces anomalies, predictions, and smart aggregations directly in your dashboard and via the API. You get production-grade machine learning woven into your streaming pipeline, not bolted on afterward.
+
+<Warning>
+  AI Intelligence features — including anomaly detection, predictive alerts, and custom model integration — require the **Growth plan or higher**. Starter plan users can preview AI features in sandbox mode, but results will not be available in production streams or via the API. [Upgrade your plan](https://app.nexcore.io/settings/billing) to enable AI in production.
+</Warning>
+
+## Anomaly Detection
+
+NexCore's anomaly detection model monitors every event flowing through your stream and scores it against the learned baseline for that stream. Deviations in event frequency, field value distributions, payload size, or inter-arrival timing are all surfaced automatically — without you needing to write a single detection rule.
+
+To trigger an analysis over a historical window, or to run anomaly detection on demand, call the analyze endpoint:
+
+```bash
+POST /v1/ai/analyze
+```
+
+**Request body:**
+
+```json
+{
+  "stream": "payments",
+  "window": "5m",
+  "sensitivity": 0.85
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `stream` | string | The name of the stream to analyze |
+| `window` | string | Lookback window for the analysis (`1m`, `5m`, `1h`, `1d`) |
+| `sensitivity` | float | Detection threshold from `0.0` (detect only severe anomalies) to `1.0` (detect subtle deviations) |
+
+<Tip>
+  The `sensitivity` parameter controls the signal-to-noise trade-off. A value of `0.85` is a strong starting point for most production streams. If you're receiving too many false positives, lower sensitivity to `0.65`–`0.75`. If you're missing real anomalies, raise it toward `0.90`–`0.95`. Re-evaluate your sensitivity setting after the first two weeks of production traffic, once the model has built a richer baseline.
+</Tip>
+
+### AI Response Format
+
+A successful call to `/v1/ai/analyze` returns a structured JSON response describing each detected anomaly, the affected events, and the model's confidence:
+
+```json
+{
+  "stream": "payments",
+  "analyzed_at": "2024-11-15T14:32:07Z",
+  "window": "5m",
+  "anomalies": [
+    {
+      "id": "anom_01HGXK7P2V3NQ8TMSC4R6FWDEZ",
+      "anomaly_score": 0.94,
+      "confidence": 0.91,
+      "type": "spike",
+      "description": "Event rate increased 6.2x above the 30-day baseline between 14:27 and 14:32 UTC.",
+      "affected_events": {
+        "count": 18420,
+        "first_offset": 9823410,
+        "last_offset": 9841829,
+        "sample": [
+          { "event_id": "evt_A1B2C3", "timestamp": "2024-11-15T14:27:03Z", "amount": 0.01 },
+          { "event_id": "evt_D4E5F6", "timestamp": "2024-11-15T14:27:04Z", "amount": 0.01 }
+        ]
+      },
+      "recommended_action": "Review for potential card-testing fraud pattern."
+    }
+  ],
+  "summary": {
+    "total_events_analyzed": 142300,
+    "anomalies_detected": 1,
+    "baseline_event_rate_per_min": 4710,
+    "observed_event_rate_per_min": 29180
+  }
+}
+```
+
+## Predictive Alerts
+
+Predictive alerts let you act on what NexCore's AI forecasts is about to happen, not just what has already occurred. You configure alert rules that fire when the AI model predicts a condition will be met within a configurable forecast horizon.
+
+**To configure a predictive alert from the dashboard:**
+
+1. Navigate to **AI Intelligence → Predictive Alerts → New Alert**.
+2. Select the stream and the metric you want to monitor (event rate, field value, error count, etc.).
+3. Set the **forecast horizon** — how far ahead NexCore should look (e.g., `10m`, `1h`).
+4. Define the **trigger condition**: for example, "predicted event rate exceeds 50,000/min" or "predicted error rate rises above 5%".
+5. Choose your **notification channel**: email, Slack, PagerDuty, or webhook.
+6. Click **Save and Activate**.
+
+NexCore evaluates predictive alert conditions every 60 seconds using the latest model state. You'll receive an alert with the predicted metric value, the confidence interval, and a direct link to the anomaly detail view.
+
+## Smart Aggregations
+
+Beyond raw anomaly scores, NexCore's AI layer computes rich statistical aggregations over your event streams in real time. These aggregations are updated continuously as new events arrive and are accessible from the dashboard and via the Metrics API.
+
+Available AI-computed aggregations include:
+
+- **Moving averages** (5m, 15m, 1h, 24h) with automatic trend direction
+- **Percentiles** (p50, p75, p90, p95, p99) for any numeric field
+- **Rate-of-change** detection to identify accelerating or decelerating trends
+- **Rolling sums and counts** over configurable time windows
+- **Seasonality-adjusted baselines** that account for daily and weekly traffic patterns
+
+Query aggregations via the Metrics API:
+
+```bash
+GET /v1/streams/payments/metrics?agg=p99&field=amount&window=1h
+```
+
+```json
+{
+  "stream": "payments",
+  "field": "amount",
+  "aggregation": "p99",
+  "window": "1h",
+  "value": 4892.50,
+  "computed_at": "2024-11-15T15:00:00Z"
+}
+```
+
+## Custom Models
+
+If NexCore's built-in AI doesn't cover your domain-specific detection needs, you can bring your own model (BYOM) via the NexCore Plugin API. Custom models run inside NexCore's processing pipeline as first-class citizens — they receive the same event stream as built-in models and can emit anomaly scores, enrichment fields, or routing signals.
+
+To register a custom model:
+
+```javascript
+const model = await client.ai.models.register({
+  name: 'my-fraud-detector',
+  runtime: 'onnx',              // 'onnx' | 'tensorflow-lite' | 'python-lambda'
+  endpoint: 'https://models.example.com/fraud/v2/infer',
+  inputSchema: 'nexcore://schemas/payment-event-v1',
+  outputField: 'fraud_score',   // field injected into each processed event
+  stream: 'payments',
+});
+```
+
+Custom model inference results are merged into the event payload under the field name you specify, making the scores available to downstream pipeline steps, alert rules, and consumer applications — exactly as if the field had been part of the original event.

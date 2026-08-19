@@ -1,0 +1,155 @@
+---
+title: "Monitor NexCore Projects with Metrics and Alerts"
+sidebarTitle: "Monitoring"
+description: "Use NexCore's built-in metrics dashboard and Metrics API to track throughput, latency, and errors, and configure alerts for your streams and pipelines."
+---
+
+NexCore provides built-in observability for all your streams, pipelines, and API usage — accessible from the dashboard and the Metrics API. You can track event throughput in real time, set threshold-based alerts, and export data to external monitoring systems like Prometheus and Grafana without any additional instrumentation.
+
+## Dashboard Metrics
+
+The **Metrics** tab in your NexCore project dashboard gives you an at-a-glance view of platform health across four key dimensions:
+
+- **Event Throughput** — events ingested and processed per second, graphed over time. Use the time-range selector to view the last 1 hour, 24 hours, 7 days, or 30 days.
+- **Pipeline Error Rate** — percentage of events that encountered a processing error in any pipeline step. Drill down by pipeline name to isolate the source of failures.
+- **p99 Latency** — the 99th-percentile end-to-end processing time from event ingestion to final pipeline step completion. This is the most reliable indicator of tail latency that your consumers experience.
+- **Consumer Lag** — how many seconds behind the slowest active consumer group is for each stream. A growing lag means your consumers can't keep up with the ingest rate.
+
+All charts support filtering by stream, pipeline, and consumer group. Click any data point to see an event-level breakdown for that time window.
+
+<Info>
+  Metrics data is retained for 90 days. If you need longer retention for compliance or trend analysis, use the Metrics API to export data to your own data warehouse on a scheduled basis, or enable the Prometheus endpoint and scrape it into a long-term storage system.
+</Info>
+
+## Metrics API
+
+You can query raw metrics programmatically using the `GET /v1/metrics` endpoint. This is useful for building custom dashboards, automating capacity planning reports, or feeding NexCore data into an existing observability stack.
+
+**Endpoint**
+
+```
+GET https://api.nexcore.io/v1/metrics
+```
+
+**Query parameters**
+
+| Parameter    | Type   | Required | Description |
+|--------------|--------|----------|-------------|
+| `stream`     | string | No       | Filter metrics to a specific stream by name. |
+| `pipeline`   | string | No       | Filter metrics to a specific pipeline by name. |
+| `from`       | ISO 8601 | Yes   | Start of the query window (inclusive). |
+| `to`         | ISO 8601 | Yes   | End of the query window (exclusive). |
+| `resolution` | string | No       | Data point interval: `10s`, `1m`, `5m`, `1h`. Defaults to `1m`. |
+
+**Example request**
+
+```bash
+curl "https://api.nexcore.io/v1/metrics?stream=payments&from=2024-09-01T00:00:00Z&to=2024-09-01T01:00:00Z&resolution=1m" \
+  -H "Authorization: Bearer $NEXCORE_API_KEY"
+```
+
+**Example response**
+
+```json
+{
+  "stream": "payments",
+  "from": "2024-09-01T00:00:00Z",
+  "to": "2024-09-01T01:00:00Z",
+  "resolution": "1m",
+  "data": [
+    { "timestamp": "2024-09-01T00:00:00Z", "events": 12400, "errors": 2, "latency_p99_ms": 1.8 }
+  ]
+}
+```
+
+Each entry in `data` represents one resolution interval. The `errors` field counts events that failed at any pipeline step during that interval. `latency_p99_ms` is the p99 end-to-end processing latency in milliseconds.
+
+## Configuring Alerts
+
+NexCore lets you create threshold-based alerts that fire when a metric crosses a value you define. Alerts are evaluated every 60 seconds.
+
+<Steps>
+  <Step title="Open the Alerts panel">
+    In the NexCore dashboard, navigate to your project and select **Alerts** from the left sidebar.
+  </Step>
+  <Step title="Create a new alert">
+    Click **New Alert** in the top-right corner to open the alert builder.
+  </Step>
+  <Step title="Choose a metric and scope">
+    Select the metric you want to monitor from the dropdown — for example, `consumer_lag_seconds` or `pipeline_error_rate`. Optionally scope the alert to a specific stream or pipeline.
+  </Step>
+  <Step title="Set the threshold and condition">
+    Choose a condition (`greater than`, `less than`, or `equal to`) and enter a threshold value. You can also set a **sustained duration** — for example, trigger only when the condition holds for 5 consecutive minutes, which reduces noise from brief spikes.
+  </Step>
+  <Step title="Select a notification channel">
+    Pick one or more notification channels (Email, Slack, PagerDuty, or webhook). Channels must be configured before they appear here — see [Notification Channels](#notification-channels) below.
+  </Step>
+  <Step title="Save and activate">
+    Give the alert a descriptive name and click **Save**. The alert is active immediately. You can pause, edit, or delete it at any time from the Alerts list.
+  </Step>
+</Steps>
+
+## Notification Channels
+
+NexCore supports four notification channel types. Configure them once under **Settings → Notification Channels**, then reuse them across as many alerts as you like.
+
+**Email**
+
+Enter one or more email addresses. NexCore sends a plain-text email with the alert name, metric value, threshold, and a direct link to the relevant dashboard view when the alert fires and again when it resolves.
+
+**Slack**
+
+Create an incoming webhook in your Slack workspace (**Slack → Apps → Incoming Webhooks**), then paste the webhook URL into NexCore. Alert messages are posted to the channel you configured in Slack and include the metric name, current value, and a link to the dashboard.
+
+**PagerDuty**
+
+Generate a NexCore integration key in PagerDuty (**Services → Add Integration → NexCore**), then paste the key into NexCore. Firing alerts create a PagerDuty incident; resolving alerts automatically resolve the incident.
+
+**Webhook**
+
+Enter any HTTPS URL. NexCore sends a `POST` request with the following JSON body when the alert fires:
+
+```json
+{
+  "alert_id": "alrt_01j4kx9z",
+  "alert_name": "High consumer lag – payments",
+  "metric": "consumer_lag_seconds",
+  "value": 18.4,
+  "threshold": 10,
+  "condition": "greater_than",
+  "stream": "payments",
+  "fired_at": "2024-09-01T14:23:00Z",
+  "project_id": "proj_9f3c8d"
+}
+```
+
+Your endpoint must return a `2xx` status within 5 seconds. NexCore retries failed deliveries up to 3 times with exponential backoff.
+
+## Exporting Metrics
+
+**Prometheus**
+
+NexCore exposes a Prometheus-compatible scrape endpoint at:
+
+```
+GET https://api.nexcore.io/v1/metrics/prometheus
+```
+
+Authenticate with a Bearer token or a dedicated scrape API key created under **Settings → API Keys → New Key → Metrics Read**. Add the endpoint to your `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: 'nexcore'
+    bearer_token: '<your-metrics-api-key>'
+    static_configs:
+      - targets: ['api.nexcore.io']
+    metrics_path: '/v1/metrics/prometheus'
+    scheme: https
+    scrape_interval: 30s
+```
+
+The endpoint exposes all core metrics as Prometheus gauges and counters, including `nexcore_events_ingested_total`, `nexcore_pipeline_errors_total`, `nexcore_consumer_lag_seconds`, and `nexcore_latency_p99_milliseconds`.
+
+**Grafana**
+
+If you're running Grafana, add NexCore as a Prometheus data source using the scrape endpoint above. The NexCore team maintains a community Grafana dashboard (ID `19842`) on Grafana Labs that you can import directly for a pre-built overview of all core metrics.
