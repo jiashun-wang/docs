@@ -1,5 +1,5 @@
 ---
-title: "NexCore API Rate Limits and Quota Management"
+title: "NexCore API Rate Limits, Headers, and Retry Strategies"
 sidebarTitle: "Rate Limits"
 description: "Understand NexCore API rate limits by plan, read response headers to track usage, and implement exponential backoff retry logic in your integration."
 ---
@@ -60,23 +60,41 @@ The `retryAfter` value is in **milliseconds**. Wait at least this long before is
 The recommended pattern for handling `429` responses is **exponential backoff with jitter**. The following TypeScript example wraps any API call and automatically retries on rate limit errors up to a configurable maximum:
 
 ```typescript
-async function withRetry(fn: () => Promise<any>, maxRetries = 3) {
-  for (let i = 0; i < maxRetries; i++) {
+interface ApiError {
+  status: number;
+  retryAfter?: number;
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3
+): Promise<T> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      if (err.status === 429 && i < maxRetries - 1) {
-        await new Promise(r => setTimeout(r, err.retryAfter || 1000 * 2 ** i));
-      } else throw err;
+      const apiErr = err as ApiError;
+      const isRateLimited = apiErr.status === 429;
+      const hasRetriesLeft = attempt < maxRetries - 1;
+
+      if (isRateLimited && hasRetriesLeft) {
+        const backoffMs = apiErr.retryAfter ?? 1000 * Math.pow(2, attempt);
+        const jitterMs = Math.random() * 200;
+        await new Promise((resolve) => setTimeout(resolve, backoffMs + jitterMs));
+      } else {
+        throw err;
+      }
     }
   }
+  // TypeScript requires an explicit throw after the loop
+  throw new Error('Maximum retries exceeded');
 }
 ```
 
 **How it works:**
 
 1. The function attempts the provided `fn` call.
-2. If a `429` error is thrown and retries remain, it waits for either the `retryAfter` value from the error response (in milliseconds) or a calculated backoff (`1s`, `2s`, `4s` for attempts 0–2).
+2. If a `429` error is thrown and retries remain, it waits for either the `retryAfter` value from the error response (in milliseconds) or a calculated backoff of `1s`, `2s`, `4s` for attempts 0–2, plus a small random jitter.
 3. On the last attempt, or for any non-429 error, the error is re-thrown so your calling code can handle it.
 
 You can increase `maxRetries` for batch or background jobs where latency is less critical. For interactive user-facing requests, keep retries low (1–2) and surface an error to the user promptly.
@@ -85,12 +103,13 @@ You can increase `maxRetries` for batch or background jobs where latency is less
 
 For high-throughput event ingestion, use the batch endpoint to emit up to **1,000 events in a single API call**:
 
-```
+```text
 POST /v1/events/batch
 ```
 
+**Request body:**
+
 ```json
-// Request
 {
   "events": [
     { "stream": "my-stream", "type": "user.click", "payload": { "button": "cta" } },
@@ -99,8 +118,9 @@ POST /v1/events/batch
 }
 ```
 
+**Response:**
+
 ```json
-// Response
 {
   "ok": true,
   "data": {

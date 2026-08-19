@@ -1,81 +1,119 @@
 ---
 title: "NexCore: Next-Generation Intelligent Technology Platform"
 sidebarTitle: "Home"
-description: "NexCore delivers real-time data processing, AI-powered analytics, and developer-first APIs — the intelligent infrastructure platform built for the future."
+description: "NexCore delivers real-time event streaming, AI analytics, and developer-first APIs — complete intelligent infrastructure for modern applications."
 ---
 
-NexCore is an intelligent technology platform designed to power the next generation of applications. Whether you're streaming millions of events per second, running AI-driven analytics, or building deeply integrated pipelines, NexCore gives you the infrastructure to do it fast, securely, and at any scale.
+**NexCore** is the intelligent infrastructure platform built for developers who refuse to compromise. Stream millions of events per second, apply AI-powered analysis inline, and deliver processed data to any destination — all through a single, unified API. No Kafka clusters to manage. No ML inference servers to babysit. No patchwork of brittle integrations. Just fast, reliable, observable infrastructure that scales with your ambition.
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="/quickstart">
-    Get up and running with NexCore in under five minutes
+    Get up and running with NexCore in under five minutes. Create a project, emit your first event, and watch it processed end to end — no infrastructure setup required.
   </Card>
   <Card title="Core Concepts" icon="cube" href="/overview/key-concepts">
-    Understand projects, pipelines, events, and the NexCore data model
+    Understand projects, streams, events, pipelines, and the NexCore data model before you write your first line of code.
   </Card>
   <Card title="API Reference" icon="code" href="/api/overview">
-    Explore every endpoint with live request and response examples
+    Explore every endpoint with live request and response examples. Copy-paste ready for every language.
   </Card>
   <Card title="Integrations & SDKs" icon="plug" href="/guides/sdk-setup">
-    Connect NexCore to your stack using official client libraries
+    Connect NexCore to your stack with official TypeScript, Python, and Go SDKs — or use the REST API directly.
   </Card>
 </CardGroup>
 
 ## Why NexCore?
 
-NexCore was built from the ground up to solve the hardest problems in modern data infrastructure — low-latency event streaming, intelligent anomaly detection, and frictionless developer experience — without forcing you to stitch together a dozen separate tools.
+NexCore was engineered from first principles to solve the hardest problems in modern data infrastructure — sub-100ms event latency, inline AI inference, and frictionless developer experience — without forcing you to stitch together a dozen separate tools. Every layer is fully managed, independently scalable, and observable out of the box.
 
 <CardGroup cols={3}>
   <Card title="Real-Time Engine" icon="bolt" href="/features/realtime-engine">
-    Zero-latency event streaming with sub-millisecond delivery guarantees
+    Sub-100ms end-to-end event delivery with durable, replicated buffering that handles traffic spikes without data loss.
   </Card>
   <Card title="AI Intelligence" icon="brain" href="/features/ai-intelligence">
-    Built-in anomaly detection and predictive analytics on your live data
+    Attach classification models, anomaly detectors, and embedding generators directly to your live event streams — no batch jobs.
   </Card>
   <Card title="Data Pipelines" icon="arrow-right-arrow-left" href="/features/data-pipeline">
-    Visual pipeline builder with powerful transformation and routing rules
+    Build powerful transformation and routing pipelines with filters, enrichments, fan-outs, and versioned rollouts.
   </Card>
   <Card title="Enterprise Security" icon="shield-halved" href="/features/security">
-    End-to-end encryption, RBAC, and SOC 2 Type II compliant infrastructure
+    End-to-end encryption, fine-grained RBAC, API key rotation, and SOC 2 Type II compliant infrastructure — built in, not bolted on.
   </Card>
-  <Card title="Auto-Scaling" icon="chart-line" href="/guides/scaling">
-    Elastic compute that scales to billions of events without configuration
+  <Card title="Infinite Scale" icon="chart-line" href="/guides/scaling">
+    Elastic compute that scales automatically to billions of events per day — zero configuration, zero capacity planning.
   </Card>
-  <Card title="Plugin Ecosystem" icon="puzzle-piece" href="/guides/custom-plugins">
-    Extend NexCore with custom plugins, transforms, and webhook handlers
+  <Card title="Connector Ecosystem" icon="puzzle-piece" href="/guides/custom-plugins">
+    Push events to PostgreSQL, Snowflake, S3, Slack, or any webhook endpoint with pre-built connectors and a rich plugin API.
   </Card>
 </CardGroup>
 
 ## Start Building in Minutes
 
+Go from zero to a live event stream in four steps. No infrastructure provisioning, no cluster setup — just your API key and a few lines of code.
+
 <Steps>
   <Step title="Create Your Account">
-    Sign up at [app.nexcore.io](https://app.nexcore.io) and create your first workspace. No credit card required for the free tier.
+    Sign up at [app.nexcore.io](https://app.nexcore.io) and create your first workspace. The free tier includes 1 million events per month and 3 projects — no credit card required.
   </Step>
   <Step title="Install the SDK">
-    Install the NexCore SDK for your preferred language and initialize the client with your API key.
+    Install the NexCore SDK for your preferred language and initialize the client with your project API key.
+
     ```bash
     npm install @nexcore/sdk
     ```
   </Step>
   <Step title="Emit Your First Event">
-    Send your first event to the NexCore stream and watch it appear in the real-time dashboard instantly.
+    Publish a structured event to your stream and watch it appear in the real-time dashboard instantly.
+
     ```typescript
     import { NexCore } from '@nexcore/sdk';
 
-    const client = new NexCore({ apiKey: 'YOUR_API_KEY' });
+    const client = new NexCore({ apiKey: process.env.NEXCORE_API_KEY });
 
-    await client.events.emit({
-      stream: 'my-stream',
-      payload: { action: 'user.signup', userId: '42' }
+    const event = await client.events.emit({
+      stream: 'user-actions',
+      type: 'user.signed_up',
+      data: {
+        userId: 'usr_abc123',
+        plan: 'free',
+        source: 'web'
+      }
     });
+
+    console.log('Event published:', event.id);
     ```
   </Step>
-  <Step title="Explore & Automate">
-    Add AI analysis, connect pipelines, and configure webhooks to automate your workflows end to end.
+  <Step title="Add AI Analysis and Pipelines">
+    Attach an AI analysis step to your stream to classify, score, or enrich events inline — then route the results to any destination using a pipeline connector.
+
+    ```typescript
+    const analysis = await client.ai.analyze({
+      stream: 'user-actions',
+      model: 'anomaly-detector-v2',
+      data: { userId: 'usr_abc123', eventCount: 142, sessionDuration: 30 }
+    });
+
+    console.log('Anomaly score:', analysis.result.score);
+    ```
   </Step>
 </Steps>
 
 <Note>
-  NexCore's free tier includes 1 million events per month, 3 projects, and access to all core features. No credit card required.
+  NexCore's **free tier** includes up to 1 million events per month, 3 projects, and 7-day event retention — no credit card required. Upgrade at any time from your workspace settings to unlock higher throughput, longer retention, additional team members, and enterprise features like SSO and data residency controls.
 </Note>
+
+## Explore the Platform
+
+<CardGroup cols={2}>
+  <Card title="Platform Architecture" icon="layer-group" href="/overview/architecture">
+    Dive into NexCore's ingestion, processing, and delivery layers and understand how your data flows from producer to consumer.
+  </Card>
+  <Card title="API Endpoints" icon="terminal" href="/api/overview">
+    Full reference for every REST endpoint and WebSocket interface — with authentication guides, rate limit details, and error handling.
+  </Card>
+  <Card title="Quickstart Guide" icon="play" href="/quickstart">
+    The fastest path to a working NexCore integration — step by step, with runnable code for every major language.
+  </Card>
+  <Card title="Key Concepts" icon="book-open" href="/overview/key-concepts">
+    Projects, streams, events, pipelines, connectors, API keys, and workspaces — everything you need to know before you build.
+  </Card>
+</CardGroup>

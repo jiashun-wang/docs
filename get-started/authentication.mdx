@@ -1,7 +1,7 @@
 ---
-title: "Authenticate with NexCore Using API Keys"
+title: "NexCore API Key Authentication: Create, Scope, Rotate"
 sidebarTitle: "Authentication"
-description: "Learn how to create, scope, and use NexCore API keys to authenticate every request your application makes to the platform."
+description: "Create and manage NexCore API keys to authenticate your REST API calls and SDK requests — including scopes, rotation, and security tips."
 ---
 
 NexCore uses API keys to authenticate every request made to the platform. Whether you are calling the REST API directly or using one of the official SDKs, you must include a valid API key with each request. Keys are scoped to a specific project, so a key issued for one project cannot access data belonging to another.
@@ -21,7 +21,7 @@ Follow these steps to generate a new API key from the dashboard:
 
 Your key will look like this:
 
-```
+```text
 nxc_live_xxxxxxxxxxxxxx
 ```
 
@@ -35,7 +35,7 @@ Keys prefixed with `nxc_live_` are live (production) keys. Test environment keys
 
 Pass your API key in the `Authorization` header of every HTTP request:
 
-```
+```http
 Authorization: Bearer YOUR_API_KEY
 ```
 

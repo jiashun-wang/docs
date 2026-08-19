@@ -1,7 +1,7 @@
 ---
-title: "NexCore REST API Endpoints Reference"
+title: "NexCore API Endpoints — Full Reference for All Resources"
 sidebarTitle: "Endpoints"
-description: "Complete reference for all NexCore REST API endpoints covering projects, events, streams, pipelines, AI analysis, and platform metrics."
+description: "Complete reference for all NexCore REST API endpoints covering projects, events, real-time streams, pipelines, AI analysis, and platform metrics."
 ---
 
 Below you will find all available NexCore API endpoints, organized by resource. Each entry shows the HTTP method, path, a description of what the endpoint does, and example request and response payloads. All paths are relative to the base URL `https://api.nexcore.io`.
@@ -54,8 +54,9 @@ Create a new project.
   Number of days to retain raw event data. Defaults to `30`. Maximum is `365` on Pro and above.
 </ParamField>
 
+**Request body:**
+
 ```json
-// Request
 {
   "name": "Production App",
   "region": "us-east-1",
@@ -63,8 +64,9 @@ Create a new project.
 }
 ```
 
+**Response:**
+
 ```json
-// Response
 {
   "ok": true,
   "data": {
@@ -134,8 +136,9 @@ Emit a single event to a stream. The event is ingested immediately and available
   Arbitrary JSON object containing the event data. Maximum payload size is 256 KB.
 </ParamField>
 
+**Request body:**
+
 ```json
-// Request
 {
   "stream": "my-stream",
   "type": "user.click",
@@ -143,8 +146,9 @@ Emit a single event to a stream. The event is ingested immediately and available
 }
 ```
 
+**Response:**
+
 ```json
-// Response
 {
   "ok": true,
   "data": {
@@ -201,7 +205,89 @@ Query historical events from a stream with optional filtering.
 
 ---
 
-## Streams
+## Real-Time Stream
+
+NexCore provides a WebSocket endpoint that lets you subscribe to a live event stream and receive events as they are emitted, with sub-second latency.
+
+### `WebSocket /v1/stream`
+
+Open a persistent WebSocket connection to subscribe to real-time events on one or more streams. The connection stays open and the server pushes each event as it arrives, eliminating the need for polling.
+
+**Connection URL:**
+
+```text
+wss://api.nexcore.io/v1/stream
+```
+
+**Authentication:** Pass your API key as a query parameter on the initial connection URL:
+
+```text
+wss://api.nexcore.io/v1/stream?token=nxc_live_xxxxxxxxxxxxxx
+```
+
+<Warning>
+  Treat the `token` query parameter with the same care as the `Authorization` header — never embed it in client-side JavaScript that is served publicly. Use short-lived session tokens where possible.
+</Warning>
+
+**Subscribing to a stream:** After the connection is established, send a JSON subscription message to specify which stream to follow:
+
+```json
+{
+  "action": "subscribe",
+  "stream": "my-stream"
+}
+```
+
+You can also filter by event type:
+
+```json
+{
+  "action": "subscribe",
+  "stream": "my-stream",
+  "type_filter": "user.*"
+}
+```
+
+**Incoming event message:** The server sends each matching event as a JSON object over the WebSocket:
+
+```json
+{
+  "id": "evt_01HZXXXXX",
+  "stream": "my-stream",
+  "type": "user.click",
+  "payload": { "button": "cta" },
+  "timestamp": "2024-09-15T12:00:01Z"
+}
+```
+
+**TypeScript example using the NexCore SDK:**
+
+```typescript
+import { NexCore } from '@nexcore/sdk';
+
+const client = new NexCore({ apiKey: process.env.NEXCORE_API_KEY });
+
+const stream = client.stream.subscribe({
+  stream: 'my-stream',
+  typeFilter: 'user.*',
+});
+
+stream.on('event', (event) => {
+  console.log('Received event:', event.type, event.payload);
+});
+
+stream.on('error', (err) => {
+  console.error('Stream error:', err.message);
+});
+```
+
+<Tip>
+  Implement reconnect logic with exponential backoff in case the WebSocket connection drops. The NexCore SDK handles this automatically when you use `client.stream.subscribe`.
+</Tip>
+
+---
+
+## Named Streams
 
 Streams are named, ordered, and partitioned channels for event data. All events are emitted to and read from streams.
 
@@ -240,13 +326,15 @@ Create a new stream within the authenticated project.
   Number of partitions to create for parallel throughput. Defaults to `1`. Maximum is `64` on Enterprise plans.
 </ParamField>
 
+**Request body:**
+
 ```json
-// Request
 { "name": "my-stream", "partitions": 4 }
 ```
 
+**Response:**
+
 ```json
-// Response
 {
   "ok": true,
   "data": {
@@ -282,8 +370,25 @@ Pipelines define real-time processing graphs that transform, filter, or route ev
 
 Create a new pipeline with a processing configuration.
 
+<ParamField body="name" type="string" required>
+  A unique name for this pipeline within the project. Maximum 64 characters.
+</ParamField>
+
+<ParamField body="source_stream" type="string" required>
+  The name of the stream this pipeline consumes events from.
+</ParamField>
+
+<ParamField body="filters" type="array">
+  An optional array of filter objects. Each filter specifies a `type` field to match against event type strings. Events that do not match any filter are dropped.
+</ParamField>
+
+<ParamField body="destination" type="object" required>
+  An object describing the output destination. Supported `type` values are `webhook`, `stream`, and `storage`. Include the corresponding configuration fields (e.g., `url` for webhooks).
+</ParamField>
+
+**Request body:**
+
 ```json
-// Request
 {
   "name": "click-enrichment",
   "source_stream": "my-stream",
@@ -295,8 +400,9 @@ Create a new pipeline with a processing configuration.
 }
 ```
 
+**Response:**
+
 ```json
-// Response
 {
   "ok": true,
   "data": {
@@ -331,7 +437,7 @@ Get the current run status and throughput metrics for a pipeline.
 
 ---
 
-## AI
+## AI Analysis
 
 NexCore's AI engine exposes endpoints for submitting stream data for automated analysis, anomaly detection, and pattern recognition.
 
@@ -339,8 +445,25 @@ NexCore's AI engine exposes endpoints for submitting stream data for automated a
 
 Submit a batch of event data from a stream for AI-powered analysis. The response includes per-event anomaly scores and any detected behavioral patterns.
 
+<ParamField body="stream" type="string" required>
+  The name of the stream to analyze.
+</ParamField>
+
+<ParamField body="from" type="string" required>
+  ISO 8601 UTC timestamp marking the start of the analysis window.
+</ParamField>
+
+<ParamField body="to" type="string" required>
+  ISO 8601 UTC timestamp marking the end of the analysis window.
+</ParamField>
+
+<ParamField body="model" type="string">
+  The analysis model to use. Defaults to `anomaly-v1`. Contact support for available model options.
+</ParamField>
+
+**Request body:**
+
 ```json
-// Request
 {
   "stream": "my-stream",
   "from": "2024-09-15T11:00:00Z",
@@ -349,8 +472,9 @@ Submit a batch of event data from a stream for AI-powered analysis. The response
 }
 ```
 
+**Response:**
+
 ```json
-// Response
 {
   "ok": true,
   "data": {
@@ -374,9 +498,28 @@ Submit a batch of event data from a stream for AI-powered analysis. The response
 
 Retrieve aggregated platform metrics for the authenticated project, including event throughput, pipeline health, and storage utilization.
 
-```json
-// Query parameters: ?from=2024-09-15T00:00:00Z&to=2024-09-15T23:59:59Z&granularity=1h
+<ParamField query="from" type="string" required>
+  ISO 8601 UTC timestamp for the start of the reporting period.
+</ParamField>
 
+<ParamField query="to" type="string" required>
+  ISO 8601 UTC timestamp for the end of the reporting period.
+</ParamField>
+
+<ParamField query="granularity" type="string">
+  Time bucket size for aggregated data points. Accepted values: `1m`, `5m`, `1h`, `1d`. Defaults to `1h`.
+</ParamField>
+
+**Example request:**
+
+```bash
+curl -X GET "https://api.nexcore.io/v1/metrics?from=2024-09-15T00:00:00Z&to=2024-09-15T23:59:59Z&granularity=1h" \
+  -H "Authorization: Bearer nxc_live_xxxxxxxxxxxxxx"
+```
+
+**Response:**
+
+```json
 {
   "ok": true,
   "data": {

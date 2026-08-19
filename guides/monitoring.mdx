@@ -1,5 +1,5 @@
 ---
-title: "Monitor NexCore Projects with Metrics and Alerts"
+title: "Monitor Your NexCore Projects with Metrics and Alerts"
 sidebarTitle: "Monitoring"
 description: "Use NexCore's built-in metrics dashboard and Metrics API to track throughput, latency, and errors, and configure alerts for your streams and pipelines."
 ---
@@ -27,7 +27,7 @@ You can query raw metrics programmatically using the `GET /v1/metrics` endpoint.
 
 **Endpoint**
 
-```
+```http
 GET https://api.nexcore.io/v1/metrics
 ```
 
@@ -131,7 +131,7 @@ Your endpoint must return a `2xx` status within 5 seconds. NexCore retries faile
 
 NexCore exposes a Prometheus-compatible scrape endpoint at:
 
-```
+```http
 GET https://api.nexcore.io/v1/metrics/prometheus
 ```
 

@@ -1,5 +1,5 @@
 ---
-title: "NexCore SDK Setup and Integration Guide"
+title: "NexCore SDK Setup: TypeScript, Python, Go, and Java"
 sidebarTitle: "SDK Setup"
 description: "Install and configure official NexCore SDKs for TypeScript, Python, Go, and Java to integrate streaming and analytics into your app."
 ---
@@ -237,6 +237,82 @@ func main() {
     }
 }
 ```
+
+---
+
+## Java
+
+### Installation
+
+Add the `nexcore-java` dependency to your `pom.xml` (Maven) or `build.gradle` (Gradle):
+
+```xml
+<!-- Maven -->
+<dependency>
+  <groupId>io.nexcore</groupId>
+  <artifactId>nexcore-java</artifactId>
+  <version>1.0.0</version>
+</dependency>
+```
+
+```groovy
+// Gradle
+implementation 'io.nexcore:nexcore-java:1.0.0'
+```
+
+### Full Example
+
+```java
+import io.nexcore.NexCoreClient;
+import io.nexcore.model.EmitRequest;
+import io.nexcore.model.Event;
+import io.nexcore.model.ProjectList;
+
+import java.util.Map;
+
+public class NexCoreDemo {
+    public static void main(String[] args) throws Exception {
+        // The client reads NEXCORE_API_KEY from the environment automatically
+        NexCoreClient client = NexCoreClient.builder()
+            .apiKey(System.getenv("NEXCORE_API_KEY"))
+            .region("us-east-1")
+            .build();
+
+        // 1. Emit an event to a stream
+        Event event = client.events().emit(
+            EmitRequest.builder()
+                .stream("my-stream")
+                .type("user.signup")
+                .payload(Map.of("userId", "42", "email", "user@example.com"))
+                .build()
+        );
+        System.out.println("Emitted event: " + event.getId());
+
+        // 2. List all projects in your organisation
+        ProjectList projects = client.projects().list();
+        projects.getData().forEach(p ->
+            System.out.printf("Project: %s (%s)%n", p.getName(), p.getId())
+        );
+
+        // 3. Reactive (non-blocking) example with Project Reactor
+        client.events().emitReactive(
+            EmitRequest.builder()
+                .stream("my-stream")
+                .type("order.placed")
+                .payload(Map.of("orderId", "ORD-9981"))
+                .build()
+        )
+        .doOnNext(e -> System.out.println("Reactive emit: " + e.getId()))
+        .block();
+
+        client.close();
+    }
+}
+```
+
+<Tip>
+The Java SDK ships both a blocking API (`client.events().emit(...)`) and a reactive API that returns `Mono<Event>` / `Flux<Event>` for use with Spring WebFlux and Project Reactor. Use the reactive API whenever you need non-blocking I/O inside a reactive application.
+</Tip>
 
 ---
 

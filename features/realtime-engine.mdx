@@ -42,12 +42,36 @@ const stream = await client.streams.create({
 
 ## WebSocket Subscriptions
 
-The fastest way to consume events is via a persistent WebSocket connection. NexCore manages reconnection, offset tracking, and backpressure automatically so you can focus on handling events.
+The fastest way to consume events is via a persistent WebSocket connection to the public streaming endpoint. Connect to `wss://api.nexcore.io/v1/stream` with your API key and stream name to start receiving events immediately. NexCore manages reconnection, offset tracking, and backpressure automatically so you can focus on handling events.
 
 <CodeGroup>
 
 ```javascript JavaScript
-const socket = client.stream.connect('my-stream');
+// Raw WebSocket — public API endpoint: wss://api.nexcore.io/v1/stream
+const ws = new WebSocket(
+  'wss://api.nexcore.io/v1/stream?stream=my-stream&startFrom=latest',
+  { headers: { Authorization: 'Bearer YOUR_API_KEY' } }
+);
+
+ws.on('message', (data) => {
+  const event = JSON.parse(data);
+  console.log('Received event:', event);
+});
+
+ws.on('error', (err) => {
+  console.error('Stream error:', err);
+});
+
+ws.on('close', () => {
+  console.log('Connection closed — reconnect to resume from last offset.');
+});
+```
+
+```javascript JavaScript (SDK)
+const socket = client.stream.connect('my-stream', {
+  startFrom: 'latest',       // 'latest' | 'earliest' | { offset: 1024 }
+  ackMode: 'auto',           // 'auto' | 'manual'
+});
 
 socket.on('event', (event) => {
   console.log('Received event:', event);
@@ -59,12 +83,6 @@ socket.on('error', (err) => {
 
 socket.on('close', () => {
   console.log('Connection closed — NexCore will reconnect automatically.');
-});
-
-// Optionally start from a specific offset
-const socket = client.stream.connect('my-stream', {
-  startFrom: 'latest',       // 'latest' | 'earliest' | { offset: 1024 }
-  ackMode: 'auto',           // 'auto' | 'manual'
 });
 ```
 

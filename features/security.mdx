@@ -1,5 +1,5 @@
 ---
-title: "Security and Compliance in NexCore"
+title: "Security: Encryption, Access Control, and Compliance"
 sidebarTitle: "Security"
 description: "NexCore protects your data with TLS 1.3 encryption, AES-256 at rest, granular RBAC, audit logs, and SOC 2 Type II and GDPR compliance."
 ---
@@ -136,18 +136,4 @@ NexCore provides multiple layers of network-level protection to isolate your dat
 
 **IP allowlisting at the organization level:** In addition to per-key IP restrictions, you can configure an organization-wide IP allowlist that applies to all API traffic regardless of which key is used. Requests from outside the allowlist are blocked at the network edge before reaching NexCore's application layer.
 
-Configure network security settings from **Settings → Security → Network**, or via the Organization API:
-
-```bash
-PATCH /v1/organization/security/network
-```
-
-```json
-{
-  "ipAllowlist": [
-    "203.0.113.0/24",
-    "198.51.100.42/32"
-  ],
-  "enforcePrivateEndpoint": true
-}
-```
+Configure network security settings from **Settings → Security → Network**. Use the IP allowlist fields to add CIDR ranges, and toggle **Enforce Private Endpoint** to require all API traffic to arrive through your private endpoint. Changes take effect within 60 seconds and are recorded in your audit log.

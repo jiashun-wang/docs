@@ -14,27 +14,43 @@ NexCore's AI engine runs continuously on your live event streams — no model tr
 
 NexCore's anomaly detection model monitors every event flowing through your stream and scores it against the learned baseline for that stream. Deviations in event frequency, field value distributions, payload size, or inter-arrival timing are all surfaced automatically — without you needing to write a single detection rule.
 
-To trigger an analysis over a historical window, or to run anomaly detection on demand, call the analyze endpoint:
-
-```bash
-POST /v1/ai/analyze
-```
-
-**Request body:**
-
-```json
-{
-  "stream": "payments",
-  "window": "5m",
-  "sensitivity": 0.85
-}
-```
+To trigger an analysis over a historical window, or to run anomaly detection on demand, call the `POST /v1/ai/analyze` endpoint with your stream name, the lookback window, and your desired sensitivity threshold.
 
 | Field | Type | Description |
 |---|---|---|
 | `stream` | string | The name of the stream to analyze |
 | `window` | string | Lookback window for the analysis (`1m`, `5m`, `1h`, `1d`) |
 | `sensitivity` | float | Detection threshold from `0.0` (detect only severe anomalies) to `1.0` (detect subtle deviations) |
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.nexcore.io/v1/ai/analyze \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stream": "payments",
+    "window": "5m",
+    "sensitivity": 0.85
+  }'
+```
+
+```typescript TypeScript
+import { NexCoreClient } from '@nexcore/sdk';
+
+const client = new NexCoreClient({ apiKey: process.env.NEXCORE_API_KEY });
+
+const result = await client.ai.analyze({
+  stream: 'payments',
+  window: '5m',
+  sensitivity: 0.85,
+});
+
+console.log('Anomalies detected:', result.anomalies.length);
+console.log('Summary:', result.summary);
+```
+
+</CodeGroup>
 
 <Tip>
   The `sensitivity` parameter controls the signal-to-noise trade-off. A value of `0.85` is a strong starting point for most production streams. If you're receiving too many false positives, lower sensitivity to `0.65`–`0.75`. If you're missing real anomalies, raise it toward `0.90`–`0.95`. Re-evaluate your sensitivity setting after the first two weeks of production traffic, once the model has built a richer baseline.
